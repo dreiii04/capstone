@@ -1,0 +1,1 @@
+const mongoose=require('mongoose'); mongoose.connect('mongodb://127.0.0.1:27017/verifitor').then(async () => { const tx = await mongoose.connection.collection('transactions').findOne({receiptImage: {$ne: null}}); console.log('Tx:', tx); const user = await mongoose.connection.collection('users').findOne({profilePic: {$ne: null}}); console.log('User:', user); process.exit(0); });

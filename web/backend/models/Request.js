@@ -1,0 +1,94 @@
+const mongoose = require('mongoose');
+
+const requestSchema = new mongoose.Schema({
+  requestId: {
+    type: String,
+    required: true,
+    unique: true
+  },
+  userId: {
+    type: String,
+    default: '',
+    index: true
+  },
+  name: {
+    type: String,
+    required: true
+  },
+  studentId: {
+    type: String,
+    default: ''
+  },
+  email: {
+    type: String,
+    default: '',
+    index: true,
+    lowercase: true,
+    trim: true
+  },
+  course: {
+    type: String,
+    default: ''
+  },
+  yearLevel: {
+    type: String,
+    default: ''
+  },
+  status: {
+    type: String,
+    enum: ['Pending', 'In Process', 'Released', 'Rejected'],
+    default: 'Pending'
+  },
+  rejectionReason: {
+    type: String,
+    default: ''
+  },
+  documentType: {
+    type: String,
+    required: true
+  },
+  subDocumentType: {
+    type: String,
+    default: ''
+  },
+  purpose: {
+    type: String,
+    default: ''
+  },
+  otherPurpose: {
+    type: String,
+    default: ''
+  },
+  quantity: {
+    type: Number,
+    default: 1
+  },
+  documentPrice: {
+    type: Number,
+    min: 0,
+    default: 0
+  },
+  processingFee: {
+    type: Number,
+    min: 0,
+    default: 0
+  },
+  totalAmount: {
+    type: Number,
+    min: 0,
+    default: 0
+  },
+  documentHash: {
+    type: String
+  },
+  documentFile: {
+    type: String
+  },
+  dateRequested: {
+    type: Date,
+    default: Date.now
+  }
+}, { timestamps: true });
+
+delete mongoose.models.Request;
+module.exports = mongoose.model('Request', requestSchema);

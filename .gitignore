@@ -1,0 +1,34 @@
+﻿# Secrets
+**/.env
+**/.env.*
+!**/.env.example
+**/.local-jwt-secret
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/*.jks
+**/*.keystore
+**/key.properties
+
+# Dependencies and generated files
+**/node_modules/
+**/.dart_tool/
+**/.gradle/
+**/build/
+**/coverage/
+**/dist/
+**/.flutter-plugins-dependencies
+**/.git.backup/
+
+# Runtime data
+**/uploads/
+**/*.log
+**/*.tmp
+
+# IDE and OS files
+**/.idea/
+**/.vscode/
+**/*.iml
+**/.DS_Store
+**/Thumbs.db

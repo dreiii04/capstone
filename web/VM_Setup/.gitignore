@@ -1,0 +1,34 @@
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Node
+node_modules/
+
+# Hardhat generated files
+cache/
+artifacts/
+
+# Besu runtime/generated data
+database/
+caches/
+
+# Besu private node identity
+key
+
+# Generated metadata
+*_METADATA.json
+
+# Logs
+*.log
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# SSH/private keys
+.ssh/
+*.pem
+*.key
