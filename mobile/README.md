@@ -5,20 +5,23 @@ account management.
 
 ## API architecture
 
-The mobile and web clients communicate with one shared Vercel API and therefore
-use the same authentication service and database.
+The mobile and web clients use separate API deployments with client-specific
+route contracts. Both backends can use the same database and authentication
+settings, but the Flutter client must target the mobile backend because routes
+such as `/profile`, `/payments/receipt`, and `/refunds` are not exposed by the
+web-admin API.
 
 ```text
-Web client ----\
-                > Shared Vercel API -> Shared database
-Mobile client -/
+Web client ----> Web API ----\
+                            > Shared database
+Mobile client -> Mobile API -/
 ```
 
 The mobile API URL is defined once in `lib/constants.dart` as
 `ApiConstants.baseUrl`:
 
 ```text
-https://verifitor-backend.vercel.app/api
+https://verifitormob-backend.vercel.app/api
 ```
 
 All HTTP and multipart requests are created by `MongoDataApiService` from that
@@ -29,7 +32,7 @@ changing source files:
 
 ```powershell
 flutter run --dart-define=API_BASE_URL=http://10.0.2.2:4000
-flutter build web --dart-define=API_BASE_URL=https://verifitor-backend.vercel.app/api
+flutter build web --dart-define=API_BASE_URL=https://verifitormob-backend.vercel.app/api
 ```
 
 For a browser deployment, set the backend's `ALLOWED_ORIGIN` environment

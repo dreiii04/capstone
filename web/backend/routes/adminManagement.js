@@ -3,6 +3,7 @@ const router = express.Router();
 const Admin = require('../models/Users/Admin');
 const ActivityLog = require('../models/ActivityLog');
 const { protect, superAdminOnly } = require('../middleware/authMiddleware');
+const { findUserByEmail } = require('../services/sessionService');
 
 router.use(protect);
 router.use(superAdminOnly);
@@ -22,8 +23,7 @@ router.post('/', async (req, res) => {
   try {
     const { email, password, name } = req.body;
 
-    const existingAdmin = await Admin.findOne({ email });
-    if (existingAdmin) {
+    if (await findUserByEmail(email)) {
       return res.status(400).json({ message: 'Admin with this email already exists' });
     }
 
@@ -31,7 +31,8 @@ router.post('/', async (req, res) => {
       email,
       password, // Model handles hashing
       name,
-      role: 'registrar'
+      role: 'admin',
+      status: 'Active'
     });
 
     // Log the action
@@ -74,17 +75,26 @@ router.post('/:id/reset-password', async (req, res) => {
 // @route   PUT /api/admins/:id
 router.put('/:id', async (req, res) => {
   try {
-    const { name, email, role } = req.body;
+    const { name, email } = req.body;
 
     const admin = await Admin.findById(req.params.id);
     if (!admin) return res.status(404).json({ message: 'Admin not found' });
 
     const updateData = {};
     if (name) updateData.name = name;
-    if (email) updateData.email = email;
-    if (role) updateData.role = role;
+    if (email && String(email).trim().toLowerCase() !== admin.email) {
+      const existing = await findUserByEmail(email);
+      if (existing) {
+        return res.status(409).json({ message: 'That email is already in use.' });
+      }
+      updateData.email = String(email).trim().toLowerCase();
+    }
 
-    const updatedAdmin = await Admin.findByIdAndUpdate(req.params.id, updateData, { new: true }).select('-password');
+    const updatedAdmin = await Admin.findByIdAndUpdate(
+      req.params.id,
+      updateData,
+      { new: true, runValidators: true },
+    );
 
     await ActivityLog.create({
       userEmail: req.user.email,

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Download, FileText, GraduationCap, Printer, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import { ArrowLeft, Download, GraduationCap, Printer, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import Layout from '../../components/Layout';
 import ConfirmModal from '../../components/ConfirmModal';
 import api from '../../api';
@@ -86,7 +86,7 @@ const DiplomaDetails = () => {
             link.click();
             link.remove();
             window.URL.revokeObjectURL(url);
-        } catch (error) {
+        } catch {
             setMessage({ type: 'error', text: 'Error downloading PDF' });
         } finally {
             setDownloading(false);

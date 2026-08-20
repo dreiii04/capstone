@@ -6,6 +6,8 @@ import config from '../config/config.js';
 import { ensureDb } from '../config/db.js';
 import { apiLimiter, authLimiter } from './rate-limit.middleware.js';
 
+let startupErrorLogged = false;
+
 export function applyAppMiddleware(app) {
   app.disable('x-powered-by');
   if (config.trustProxyHops > 0) {
@@ -37,14 +39,17 @@ export function applyAppMiddleware(app) {
       return callback(null, config.allowedOrigins.includes(origin));
     },
     credentials: false,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Authorization', 'Content-Type', 'X-Notification-Key'],
   }));
 
   app.use((_req, res, next) => {
     if (!config.startupError) return next();
-    if (!config.isProduction) {
+    // startupError contains only a safe validation message and never includes
+    // secret values. Keep it in host logs so production 503s are diagnosable.
+    if (!startupErrorLogged) {
       console.error(`Startup configuration error: ${config.startupError}`);
+      startupErrorLogged = true;
     }
     return res.status(503).json({
       success: false,

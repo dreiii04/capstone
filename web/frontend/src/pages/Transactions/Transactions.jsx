@@ -235,8 +235,6 @@ const Transactions = () => {
   const paymentModes = ['All Modes', 'GCash', 'Maya', 'GoThyme', 'Other Online Payment'];
   const statuses = ['All Status', 'Pending Verification', 'Completed', 'Needs Update', 'Rejected', 'Refunded'];
 
-  const pendingRefundCount = refunds.filter(r => r.status?.toLowerCase() === 'pending').length;
-
   return (
     <Layout>
       <div className="p-6 bg-[#F8F9FA] min-h-screen font-sans relative">
@@ -881,7 +879,7 @@ const Transactions = () => {
                 />
 
                 <div className="flex gap-3">
-                  {selectedRefund.status === 'Pending' ? (
+                  {String(selectedRefund.status || '').toLowerCase() === 'pending' ? (
                     <>
                       <button
                         onClick={() => handleProcessRefund(selectedRefund.refundId || selectedRefund._id, 'Rejected')}
@@ -898,7 +896,7 @@ const Transactions = () => {
                         <CheckCircle size={16} /> Approve Refund
                       </button>
                     </>
-                  ) : (
+                  ) : String(selectedRefund.status || '').toLowerCase() === 'rejected' ? (
                     <button
                       onClick={() => handleProcessRefund(selectedRefund.refundId || selectedRefund._id, 'Pending')}
                       disabled={refundActionLoading}
@@ -906,7 +904,7 @@ const Transactions = () => {
                     >
                       <Undo2 size={16} /> Revert to Pending
                     </button>
-                  )}
+                  ) : null}
                 </div>
               </div>
             </div>

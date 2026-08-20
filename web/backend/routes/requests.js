@@ -62,7 +62,14 @@ router.get('/', protect, async (req, res) => {
     const enrichedRequests = await Promise.all(
       requests.map(async (r) => {
         const request = await enrichRequestWithStudentData(r.toObject());
-        return { ...request, ...resolveRequestPricing(request) };
+        return {
+          ...request,
+          documentFile: request.hasDocument &&
+            (!isEndUser(req.user) || request.status === 'Released')
+            ? `/api/requests/${encodeURIComponent(request.requestId)}/document`
+            : '',
+          ...resolveRequestPricing(request),
+        };
       })
     );
     
@@ -75,26 +82,59 @@ router.get('/', protect, async (req, res) => {
 // Update a request (Logged)
 router.put('/:id', protect, registrarOrSuperAdmin, async (req, res) => {
     try {
-        const { status, name, documentHash, forceOverride, rejectionReason } = req.body;
+        const { status, forceOverride, rejectionReason } = req.body;
 
         // Force override (payment bypass) requires super admin role
         if (forceOverride && req.user.role !== 'super admin') {
             return res.status(403).json({ message: 'Only super admins can perform force overrides.' });
         }
 
-        const updateData = {};
-        if (status) updateData.status = status;
-        if (documentHash !== undefined) updateData.documentHash = documentHash;
-        if (rejectionReason !== undefined) updateData.rejectionReason = rejectionReason;
-        if (status === 'In Process') updateData.rejectionReason = ''; // Clear reason if reopened
-
-        const request = await Request.findOneAndUpdate(
-            { requestId: req.params.id },
-            updateData,
-            { new: true }
-        );
-
+        const request = await Request.findOne({ requestId: req.params.id });
         if (!request) return res.status(404).json({ message: 'Request not found' });
+
+        if (status) {
+            const allowedStatuses = new Set([
+                'Pending',
+                'In Process',
+                'Released',
+                'Rejected',
+            ]);
+            if (!allowedStatuses.has(status)) {
+                return res.status(400).json({ message: 'Invalid request status.' });
+            }
+
+            const normalTransitions = {
+                Pending: new Set(['Rejected']),
+                'In Process': new Set(['Released', 'Rejected']),
+                Released: new Set(),
+                Rejected: new Set(),
+            };
+            const statusChanged = status !== request.status;
+            const transitionAllowed = normalTransitions[request.status]?.has(status);
+            if (statusChanged && !transitionAllowed && !forceOverride) {
+                return res.status(409).json({
+                    message: `Request cannot move from ${request.status} to ${status}.`,
+                });
+            }
+            if (status === 'Released' && !request.hasDocument) {
+                return res.status(409).json({
+                    message: 'Attach the completed document before releasing the request.',
+                });
+            }
+            const documentType = String(request.documentType || '').toLowerCase();
+            const blockchainRequired = documentType.includes('transcript') ||
+                documentType.includes('tor') || documentType.includes('diploma');
+            if (status === 'Released' && blockchainRequired &&
+                request.blockchainStatus !== 'Recorded') {
+                return res.status(409).json({
+                    message: 'Record the issued document on the blockchain before releasing it.',
+                });
+            }
+            request.status = status;
+            if (status === 'In Process') request.rejectionReason = '';
+        }
+        if (rejectionReason !== undefined) request.rejectionReason = rejectionReason;
+        await request.save();
 
         // Log activity — distinguish force overrides
         const actionLabel = forceOverride ? 'Force Override' : 'Update Request';
@@ -142,33 +182,10 @@ router.put('/:id', protect, registrarOrSuperAdmin, async (req, res) => {
 });
 
 // Generate Hash for request (Logged)
-router.post('/:id/generate-hash', protect, registrarOrSuperAdmin, async (req, res) => {
-    try {
-        const request = await Request.findOne({ requestId: req.params.id });
-        if (!request) return res.status(404).json({ message: 'Request not found' });
-
-        // Generate SHA-256 hash
-        const hash = crypto.createHash('sha256')
-            .update(`${request.requestId}-${request.name}-${Date.now()}`)
-            .digest('hex');
-
-        request.documentHash = hash;
-        await request.save();
-
-        // Log activity
-        await ActivityLog.create({
-            userEmail: req.user.email,
-            userName: req.user.name || 'User',
-            action: 'Hash Generation',
-            type: request.documentType || '------',
-            status: 'Successful',
-            details: `Generated secure SHA-256 hash for request ${req.params.id}`
-        });
-
-        res.json({ message: 'Hash generated successfully', hash });
-    } catch (error) {
-        res.status(500).json({ message: 'Error generating hash' });
-    }
+router.post('/:id/generate-hash', protect, registrarOrSuperAdmin, (_req, res) => {
+    return res.status(410).json({
+        message: 'Hashes are generated only from the final uploaded PDF.',
+    });
 });
 
 // Create a new request (Logged)

@@ -7,6 +7,18 @@ const {
   jwtSecret,
 } = require('../services/sessionService');
 
+function tokenPredatesSecurityChange(decoded, user) {
+  const validAfterMs = user?.tokensValidAfter?.getTime?.() || 0;
+  if (!validAfterMs) return false;
+
+  // JWT `iat` is stored in whole seconds while MongoDB dates retain
+  // milliseconds. Comparing the raw values rejects a token issued immediately
+  // after a password change. Session versions provide the exact invalidation
+  // boundary; this remains a compatible secondary guard for legacy records.
+  const validAfterSeconds = Math.floor(validAfterMs / 1000);
+  return Number(decoded?.iat || 0) < validAfterSeconds;
+}
+
 const protect = async (req, res, next) => {
   const authorization = String(req.headers.authorization || '');
   const match = authorization.match(/^Bearer\s+(.+)$/i);
@@ -26,8 +38,7 @@ const protect = async (req, res, next) => {
     if (Number(decoded.sv || 0) !== Number(user.sessionVersion || 0)) {
       return res.status(401).json({ success: false, message: 'Session is no longer valid.' });
     }
-    const validAfter = user.tokensValidAfter?.getTime?.() || 0;
-    if (validAfter && Number(decoded.iat || 0) * 1000 < validAfter) {
+    if (tokenPredatesSecurityChange(decoded, user)) {
       return res.status(401).json({ success: false, message: 'Session is no longer valid.' });
     }
 
@@ -57,4 +68,9 @@ const registrarOrSuperAdmin = (req, res, next) => {
   return res.status(403).json({ success: false, message: 'Staff access required.' });
 };
 
-module.exports = { protect, superAdminOnly, registrarOrSuperAdmin };
+module.exports = {
+  protect,
+  registrarOrSuperAdmin,
+  superAdminOnly,
+  tokenPredatesSecurityChange,
+};

@@ -1,30 +1,29 @@
-import React, { useState, useEffect } from 'react';
-import { CheckCircle, ExternalLink, ShieldCheck, AlertTriangle, Mail, Phone, Globe, Loader2, ArrowLeft } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { CheckCircle, ShieldCheck, AlertTriangle, Mail, Phone, Globe, Loader2 } from 'lucide-react';
 import ValidationNavbar from '../../components/ValidationPageNavBar';
 import Footer from '../../components/Footer';
 import api from '../../api';
 
 const Validation = () => {
-  const navigate = useNavigate();
   // STATE MANAGEMENT
   const [isLoading, setIsLoading] = useState(true);
   const [isValid, setIsValid] = useState(false);
   const [verificationData, setVerificationData] = useState(null);
-  const [error, setError] = useState(null);
+  const [, setError] = useState(null);
 
-  const hashFromUrl = new URLSearchParams(window.location.search).get('hash');
+  const searchParams = new URLSearchParams(window.location.search);
+  const verificationIdentifier = searchParams.get('code') || searchParams.get('hash');
 
   useEffect(() => {
     const fetchVerification = async () => {
-      if (!hashFromUrl) {
+      if (!verificationIdentifier) {
         setIsLoading(false);
-        setError('No hash provided');
+        setError('No verification code provided');
         return;
       }
 
       try {
-        const response = await api.get(`/verify/${hashFromUrl}`);
+        const response = await api.get(`/verify/${verificationIdentifier}`);
         const result = response.data;
 
         if (result.success) {
@@ -43,7 +42,7 @@ const Validation = () => {
     };
 
     fetchVerification();
-  }, [hashFromUrl]);
+  }, [verificationIdentifier]);
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-gray-800 flex flex-col">
@@ -70,7 +69,6 @@ const Validation = () => {
                 const isBlockchainEligible = verificationData && (
                   verificationData.documentType?.toLowerCase().includes('diploma') || 
                   verificationData.documentType?.toLowerCase().includes('transcript') || 
-                  hashFromUrl?.toLowerCase().startsWith('tor') || 
                   (verificationData.blockchainRecord && verificationData.blockchainRecord.status !== 'Secured on Local Database Index Only' && verificationData.blockchainRecord.status !== 'Secured Locally')
                 );
                 return (
@@ -137,7 +135,7 @@ const Validation = () => {
                           <div className="pt-6 mt-6 border-t-2 border-dashed border-gray-100 space-y-4 bg-slate-50 p-4 rounded-xl">
                             <div className="flex justify-between items-center">
                               <span className="text-xs font-bold text-gray-400 uppercase tracking-tight">Doc Fingerprint:</span>
-                              <span className="text-gray-800 font-mono font-bold bg-white px-2 py-1 rounded border border-gray-200 overflow-hidden text-ellipsis max-w-[200px] select-all" title={hashFromUrl}>{hashFromUrl}</span>
+                              <span className="text-gray-800 font-mono font-bold bg-white px-2 py-1 rounded border border-gray-200 overflow-hidden text-ellipsis max-w-[200px] select-all" title={verificationIdentifier}>{verificationIdentifier}</span>
                             </div>
                             <div className="flex justify-between items-center">
                               <span className="text-xs font-bold text-gray-400 uppercase tracking-tight">Security Status:</span>
@@ -214,7 +212,7 @@ const Validation = () => {
                   <div>
                     <h2 className="text-2xl font-bold text-gray-800 mb-3">Verification Failed</h2>
                     <p className="text-gray-600 leading-relaxed text-lg font-light">
-                      The document's digital signature does not match the blockchain records secured by VerifiTOR. 
+                      The document&apos;s digital signature does not match the blockchain records secured by VerifiTOR.
                       Please contact the university registrar immediately for further assistance.
                     </p>
                   </div>

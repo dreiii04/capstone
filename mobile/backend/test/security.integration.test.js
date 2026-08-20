@@ -7,6 +7,7 @@ import jwt from 'jsonwebtoken';
 
 import {
   memoryRequests,
+  memoryTransactions,
   memoryUsers,
 } from '../components/models/memory-store.js';
 
@@ -377,6 +378,20 @@ describe('backend security integration', { concurrency: false }, () => {
       allowed.response.headers.get('access-control-allow-origin'),
       'http://localhost',
     );
+
+    const deletePreflight = await request(baseUrl, '/notifications/example', {
+      method: 'OPTIONS',
+      headers: {
+        origin: 'http://localhost',
+        'access-control-request-method': 'DELETE',
+        'access-control-request-headers': 'authorization',
+      },
+    });
+    assert.equal(deletePreflight.response.status, 204, deletePreflight.text);
+    assert.match(
+      String(deletePreflight.response.headers.get('access-control-allow-methods')),
+      /(?:^|,\s*)DELETE(?:,|$)/,
+    );
   });
 
   test('protected APIs reject requests without server-verified authentication', async () => {
@@ -466,6 +481,45 @@ describe('backend security integration', { concurrency: false }, () => {
     );
     assert.equal(profileResponse.json?.user?.yearGraduated, '');
     assert.equal(profileResponse.json?.user?.program, '');
+
+    const updatedProfile = await request(baseUrl, '/profile', {
+      method: 'PUT',
+      headers: bearer(loginResponse.json.accessToken),
+      json: {
+        firstName: 'Former',
+        lastName: 'Learner',
+        schoolEmail: '',
+        personalEmail: formerEmail,
+        studentId: '',
+        yearLevel: '2023',
+        program: '',
+      },
+    });
+    assert.equal(updatedProfile.response.status, 200, updatedProfile.text);
+    assert.equal(updatedProfile.json?.user?.program, '');
+
+    const missingHigherEducationProgram = await request(baseUrl, '/profile', {
+      method: 'PUT',
+      headers: bearer(accessToken),
+      json: {
+        firstName: 'Security',
+        lastName: 'Tester',
+        schoolEmail: '',
+        personalEmail: email,
+        studentId: '',
+        yearLevel: '2024',
+        program: '',
+      },
+    });
+    assert.equal(
+      missingHigherEducationProgram.response.status,
+      400,
+      missingHigherEducationProgram.text,
+    );
+    assert.equal(
+      missingHigherEducationProgram.json?.message,
+      'Select a valid program.',
+    );
   });
 
   test('registration OTPs require a challenge token and lock after five failures', async () => {
@@ -742,6 +796,29 @@ describe('backend security integration', { concurrency: false }, () => {
     });
   });
 
+  test('receipt uploads stay below the Vercel request-body ceiling', async () => {
+    const oversizedImage = Buffer.alloc((4 * 1024 * 1024) + 1);
+    validPng.copy(oversizedImage);
+    const form = new FormData();
+    form.set(
+      'receipt',
+      new Blob([oversizedImage], { type: 'image/png' }),
+      'oversized-receipt.png',
+    );
+    form.set('paymentType', 'gcash');
+    form.set('requestId', 'irrelevant-for-oversized-image');
+
+    const rejected = await request(baseUrl, '/payments/receipt', {
+      headers: bearer(accessToken),
+      body: form,
+    });
+    assert.equal(rejected.response.status, 400, rejected.text);
+    assert.deepEqual(rejected.json, {
+      success: false,
+      message: 'Uploaded image is too large.',
+    });
+  });
+
   test('malformed multipart uploads return a generic 400 response', async () => {
     const boundary = 'security-test-truncated-boundary';
     const truncatedBody = [
@@ -815,6 +892,91 @@ describe('backend security integration', { concurrency: false }, () => {
       submittedNotification.message,
       /Status: pending for payment\. Follow updates in Tracking\./,
     );
+  });
+
+  test('canonical request progress is not hidden by a stale mobile status', async () => {
+    const record = {
+      _id: 'canonical-progress-request',
+      requestId: 'req_canonical_progress',
+      userId,
+      email,
+      docName: 'Certificate of Good Moral Character',
+      purpose: 'Canonical status regression test',
+      status: 'In Process',
+      mobileStatus: 'pending',
+      createdAt: '2026-08-20T01:00:00.000Z',
+    };
+    memoryRequests.push(record);
+
+    try {
+      const response = await request(baseUrl, '/requests', {
+        headers: bearer(accessToken),
+      });
+      assert.equal(response.response.status, 200, response.text);
+      const stored = response.json?.requests?.find(
+        (item) => item.requestId === record.requestId,
+      );
+      assert(stored, response.text);
+      assert.equal(stored.status, 'In Process');
+
+      const receipt = await request(baseUrl, '/payments/receipt', {
+        headers: bearer(accessToken),
+        body: makeReceiptForm(record.requestId),
+      });
+      assert.equal(receipt.response.status, 409, receipt.text);
+      assert.equal(record.paymentReceiptId, undefined);
+    } finally {
+      const index = memoryRequests.indexOf(record);
+      if (index >= 0) memoryRequests.splice(index, 1);
+    }
+  });
+
+  test('legacy transactions without request IDs link by owner and request details', async () => {
+    const createdAt = '2026-08-20T02:00:00.000Z';
+    const linkedRequest = {
+      _id: 'legacy-linked-request',
+      requestId: 'req_legacy_transaction_link',
+      userId,
+      email,
+      docName: 'Legacy Link Certificate',
+      purpose: 'Legacy transaction matching regression test',
+      status: 'Rejected',
+      remarks: 'The legacy request was rejected.',
+      createdAt,
+    };
+    const transaction = {
+      _id: 'legacy-unlinked-transaction',
+      transactionId: 'TXN-LEGACY-UNLINKED',
+      userId,
+      email,
+      payerEmail: email,
+      docName: linkedRequest.docName,
+      purpose: linkedRequest.purpose,
+      status: 'Pending Verification',
+      paymentType: 'gcash',
+      amount: '100.00',
+      createdAt,
+    };
+    memoryRequests.push(linkedRequest);
+    memoryTransactions.push(transaction);
+
+    try {
+      const response = await request(baseUrl, '/transactions', {
+        headers: bearer(accessToken),
+      });
+      assert.equal(response.response.status, 200, response.text);
+      const stored = response.json?.transactions?.find(
+        (item) => item.transactionId === transaction.transactionId,
+      );
+      assert(stored, response.text);
+      assert.equal(stored.requestId, linkedRequest.requestId);
+      assert.equal(stored.status, 'Rejected');
+    } finally {
+      const transactionIndex = memoryTransactions.indexOf(transaction);
+      if (transactionIndex >= 0) memoryTransactions.splice(transactionIndex, 1);
+      const requestIndex = memoryRequests.indexOf(linkedRequest);
+      if (requestIndex >= 0) memoryRequests.splice(requestIndex, 1);
+    }
   });
 
   test('a name change cannot hide legacy history with a blank user ID', async () => {
@@ -991,6 +1153,50 @@ describe('backend security integration', { concurrency: false }, () => {
     );
   });
 
+  test('legacy pending requests without mobile status can submit payment', async () => {
+    const requestId = 'req_legacy_web_pending_payment';
+    const legacyRequest = {
+      _id: 'legacy-web-pending-payment',
+      requestId,
+      userId,
+      email,
+      docName: 'Legacy Pending Certificate',
+      documentType: 'Legacy Pending Certificate',
+      purpose: 'Legacy pending payment compatibility test',
+      status: 'Pending',
+      createdAt: '2026-08-20T03:00:00.000Z',
+    };
+    memoryRequests.push(legacyRequest);
+
+    try {
+      const submitted = await withLocalReceiptStorage(() => request(
+        baseUrl,
+        '/payments/receipt',
+        {
+          headers: bearer(accessToken),
+          body: makeReceiptForm(requestId),
+        },
+      ));
+      assert.equal(submitted.response.status, 201, submitted.text);
+      assert.match(String(submitted.json?.receiptId || ''), /^[a-f0-9]{24}$/);
+
+      const stored = memoryRequests.find(
+        (item) => item.requestId === requestId,
+      );
+      assert.equal(String(stored?.paymentReceiptId || ''), submitted.json.receiptId);
+    } finally {
+      const requestIndex = memoryRequests.findIndex(
+        (item) => item.requestId === requestId,
+      );
+      if (requestIndex >= 0) memoryRequests.splice(requestIndex, 1);
+      for (let index = memoryTransactions.length - 1; index >= 0; index -= 1) {
+        if (memoryTransactions[index]?.requestId === requestId) {
+          memoryTransactions.splice(index, 1);
+        }
+      }
+    }
+  });
+
   test('a document request accepts only one payment receipt', async () => {
     const docName = 'Certificate of Enrollment';
     const purpose = 'Duplicate receipt integrity test';
@@ -1152,7 +1358,7 @@ describe('backend security integration', { concurrency: false }, () => {
     Array.prototype.push = function captureRefund(...items) {
       for (const item of items) {
         if (item && typeof item === 'object' &&
-            item.transactionId === receipt.json?.receiptId &&
+            item.transactionId === transactionRecord.transactionId &&
             item.refundMethod === 'gcash') {
           refundRecord = item;
         }
@@ -1179,6 +1385,8 @@ describe('backend security integration', { concurrency: false }, () => {
     assert(refundRecord, 'Expected to capture the in-memory refund.');
     assert.match(String(refundRecord.refundId || ''), /^[a-f0-9]{24}$/);
     assert.equal(submitted.json?.refundId, refundRecord.refundId);
+    assert.equal(refundRecord.transactionId, transactionRecord.transactionId);
+    assert.notEqual(refundRecord.transactionId, receipt.json?.receiptId);
 
     const duplicate = await request(baseUrl, '/refunds', {
       headers: bearer(accessToken),

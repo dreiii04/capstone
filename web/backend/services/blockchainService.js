@@ -6,11 +6,7 @@ const { ethers } = require('ethers');
 // Path to persistent ledger file for simulated fallback mode
 const LEDGER_PATH = path.join(__dirname, '../data/blockchain_ledger.json');
 
-// Ensure database/data directory exists
-const dataDir = path.dirname(LEDGER_PATH);
-if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
-}
+const isProduction = process.env.NODE_ENV === 'production';
 
 // Pre-compiled Smart Contract ABI for DocumentRegistry
 const CONTRACT_ABI = [
@@ -72,15 +68,18 @@ const CONTRACT_ABI = [
 class BlockchainService {
     constructor() {
         this.rpcUrl = process.env.BLOCKCHAIN_RPC_URL || process.env.BESU_RPC_URL || 'http://127.0.0.1:8545';
-        this.contractAddress = process.env.CONTRACT_ADDRESS || '0x5FbDB2315678afecb367f032d93F642f64180aa3';
+        this.contractAddress = process.env.DOCUMENT_REGISTRY_CONTRACT_ADDRESS ||
+            (!isProduction ? process.env.CONTRACT_ADDRESS : '') ||
+            (!isProduction ? '0x5FbDB2315678afecb367f032d93F642f64180aa3' : '');
         this.privateKey = process.env.BLOCKCHAIN_PRIVATE_KEY || process.env.SERVER_WALLET_PRIVATE_KEY;
         this.isFallbackMode = true;
         this.provider = null;
         this.contract = null;
         this.signer = null;
 
-        // Initialize Ledger for simulated mode
-        this._initLedger();
+        // The local simulation is a development aid, never a production
+        // substitute for a durable ledger.
+        if (!isProduction) this._initLedger();
         
         // Try initializing actual blockchain connection in background
         this.initBlockchainConnection();
@@ -89,6 +88,12 @@ class BlockchainService {
     // Try to connect to real local/remote blockchain node
     async initBlockchainConnection() {
         try {
+            if (!ethers.isAddress(this.contractAddress) ||
+                this.contractAddress === ethers.ZeroAddress) {
+                this.isFallbackMode = true;
+                console.warn('[Blockchain] Document registry contract is not configured.');
+                return;
+            }
             console.log(`[Blockchain] Attempting RPC connection to ${this.rpcUrl}...`);
             this.provider = new ethers.JsonRpcProvider(this.rpcUrl);
             
@@ -102,17 +107,23 @@ class BlockchainService {
                 this.isFallbackMode = false;
                 console.log(`[Blockchain] Live mode enabled successfully! Contract: ${this.contractAddress}`);
             } else {
-                console.log(`[Blockchain] RPC connected, but BLOCKCHAIN_PRIVATE_KEY is missing. Defaulting to Simulated Fallback Mode.`);
+                console.log('[Blockchain] RPC connected, but the signing key is missing.');
                 this.isFallbackMode = true;
             }
         } catch (error) {
-            console.warn(`[Blockchain] Live node not reachable (${error.message}). Running with HIGH-FIDELITY CRYPTOGRAPHIC SIMULATED FALLBACK.`);
+            console.warn(isProduction
+                ? `[Blockchain] Live node not reachable (${error.message}). Blockchain operations are unavailable.`
+                : `[Blockchain] Live node not reachable (${error.message}). Using the development simulation.`);
             this.isFallbackMode = true;
         }
     }
 
     // Helper: Initialize persistent simulated ledger
     _initLedger() {
+        const dataDir = path.dirname(LEDGER_PATH);
+        if (!fs.existsSync(dataDir)) {
+            fs.mkdirSync(dataDir, { recursive: true });
+        }
         if (!fs.existsSync(LEDGER_PATH)) {
             // Create a Genesis block
             const genesisBlock = {
@@ -143,11 +154,7 @@ class BlockchainService {
 
     // Helper: Save all blocks to ledger file
     _saveLedger(blocks) {
-        try {
-            fs.writeFileSync(LEDGER_PATH, JSON.stringify(blocks, null, 4));
-        } catch (error) {
-            console.error('Error writing blockchain ledger:', error);
-        }
+        fs.writeFileSync(LEDGER_PATH, JSON.stringify(blocks, null, 4));
     }
 
     /**
@@ -187,6 +194,14 @@ class BlockchainService {
             } catch (err) {
                 console.error(`[Blockchain] Live transaction failed. Falling back to local ledger:`, err.message);
             }
+        }
+
+        if (isProduction) {
+            const error = new Error(
+                'Blockchain ledger is unavailable; the document was not anchored.'
+            );
+            error.code = 'BLOCKCHAIN_UNAVAILABLE';
+            throw error;
         }
 
         // --- Simulated Mode (Cryptographic Proof-of-Work Mining) ---
@@ -289,6 +304,14 @@ class BlockchainService {
             } catch (err) {
                 console.error('[Blockchain] Live verification failed, checking local ledger fallback...', err.message);
             }
+        }
+
+        if (isProduction) {
+            return {
+                isVerified: false,
+                status: 'LEDGER UNAVAILABLE',
+                error: 'Live ledger verification is unavailable.'
+            };
         }
 
         // --- Simulated Verification ---

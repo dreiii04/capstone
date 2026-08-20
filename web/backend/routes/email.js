@@ -1,13 +1,17 @@
 const express = require('express');
 const router = express.Router();
 const nodemailer = require('nodemailer');
-const { protect } = require('../middleware/authMiddleware');
+const {
+    protect,
+    registrarOrSuperAdmin,
+} = require('../middleware/authMiddleware');
 const ActivityLog = require('../models/ActivityLog');
+const { resolveSmtpConfig } = require('../services/mailService');
 
 // @route   POST /api/email/send
 // @desc    Send a custom email (SMTP)
 // @access  Private
-router.post('/send', protect, async (req, res) => {
+router.post('/send', protect, registrarOrSuperAdmin, async (req, res) => {
     try {
         const { to, subject, html, text } = req.body;
 
@@ -15,17 +19,17 @@ router.post('/send', protect, async (req, res) => {
             return res.status(400).json({ success: false, message: 'Missing required fields: to, subject, and html/text' });
         }
 
-        // Configure Nodemailer using the standard variables
-        const transporter = nodemailer.createTransport({
-            service: 'gmail',
-            auth: {
-                user: process.env.SMTP_EMAIL || process.env.SMTP_USER,
-                pass: process.env.SMTP_PASSWORD || process.env.SMTP_PASS,
-            },
-        });
+        const smtp = resolveSmtpConfig(process.env);
+        if (!smtp) {
+            return res.status(503).json({
+                success: false,
+                message: 'Email delivery is not configured.'
+            });
+        }
+        const transporter = nodemailer.createTransport(smtp.transport);
 
         const mailOptions = {
-            from: process.env.SMTP_FROM || `"Verifitor" <${process.env.SMTP_EMAIL || process.env.SMTP_USER}>`,
+            from: smtp.from,
             to,
             subject,
             html,

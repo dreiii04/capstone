@@ -66,5 +66,8 @@ function imageUpload(fileSize) {
   });
 }
 
-export const receiptUpload = imageUpload(8 * 1024 * 1024);
-export const profileUpload = imageUpload(5 * 1024 * 1024);
+// Vercel Functions reject an entire request body above 4.5 MB before it reaches
+// Express. Keep the file below that ceiling so multipart headers still fit.
+export const maximumServerlessUploadBytes = 4 * 1024 * 1024;
+export const receiptUpload = imageUpload(maximumServerlessUploadBytes);
+export const profileUpload = imageUpload(maximumServerlessUploadBytes);

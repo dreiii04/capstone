@@ -4,6 +4,7 @@ const Registrar = require('../models/Registrar');
 const Admin = require('../models/Users/Admin');
 const ActivityLog = require('../models/ActivityLog');
 const { protect, superAdminOnly } = require('../middleware/authMiddleware');
+const { findUserByEmail } = require('../services/sessionService');
 
 router.use(protect);
 router.use(superAdminOnly);
@@ -37,10 +38,7 @@ router.post('/', async (req, res) => {
     const { name, email, password, role } = req.body;
 
     // Check if email exists
-    const existingReg = await Registrar.findOne({ email });
-    const existingAdmin = await Admin.findOne({ email });
-    
-    if (existingReg || existingAdmin) {
+    if (await findUserByEmail(email)) {
       return res.status(400).json({ message: 'User with this email already exists' });
     }
 

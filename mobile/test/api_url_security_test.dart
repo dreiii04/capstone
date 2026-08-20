@@ -5,7 +5,7 @@ void main() {
   test('uses only the centralized deployed API', () {
     expect(
       ApiConstants.baseUrl,
-      'https://cp-three-lemon.vercel.app/api',
+      'https://verifitormob-backend.vercel.app/api',
     );
   });
 
@@ -13,11 +13,13 @@ void main() {
     for (final path in [
       '/auth/login',
       '/auth/register/request-otp',
-      '/auth/profile',
+      '/profile',
       '/requests',
+      '/payments/receipt',
+      '/receipts',
       '/notifications',
       '/transactions',
-      '/transactions/refund-request',
+      '/refunds',
     ]) {
       expect(
         ApiConstants.uri(path).toString(),

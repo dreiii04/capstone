@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import Layout from '../../components/Layout';
 import api from '../../api';
 import { AlertCircle, Info, X, Search, SlidersHorizontal, ArrowDownAZ, ArrowUpZA } from 'lucide-react';
@@ -20,33 +20,33 @@ const Notifications = () => {
   const [isFilterDrawerOpen, setIsFilterDrawerOpen] = useState(false);
   const [sortConfig, setSortConfig] = useState({ key: 'date', direction: 'desc' });
 
-  useEffect(() => {
-    fetchNotifications();
+  const triggerToast = useCallback((message, type = 'error') => {
+    setToast({ show: true, message, type });
+    setTimeout(() => setToast({ show: false, message: '', type: 'error' }), 4000);
   }, []);
 
-  const fetchNotifications = async () => {
+  const fetchNotifications = useCallback(async () => {
     setLoading(true);
     try {
       const res = await api.get('/notifications');
       setNotifications(res.data || []);
-    } catch (error) {
+    } catch {
       triggerToast("Failed to load notifications from server.", "error");
     } finally {
       setLoading(false);
     }
-  };
+  }, [triggerToast]);
 
-  const triggerToast = (message, type = 'error') => {
-    setToast({ show: true, message, type });
-    setTimeout(() => setToast({ show: false, message: '', type: 'error' }), 4000);
-  };
+  useEffect(() => {
+    fetchNotifications();
+  }, [fetchNotifications]);
 
   const handleMarkAllRead = async () => {
     try {
       await api.put('/notifications/mark-all-read'); 
       setNotifications(notifications.map(n => ({ ...n, isRead: true })));
       triggerToast("All notifications caught up!", "info");
-    } catch (error) {
+    } catch {
       triggerToast("Could not update notifications on server.", "error");
     }
   };

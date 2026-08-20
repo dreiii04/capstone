@@ -1,4 +1,3 @@
-import React from 'react';
 import { X, AlertTriangle, AlertCircle, CheckCircle2, HelpCircle } from 'lucide-react';
 
 const ConfirmModal = ({

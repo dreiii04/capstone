@@ -10,7 +10,7 @@ const ManageRegistrar = () => {
   const [registrars, setRegistrars] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [entriesPerPage, setEntriesPerPage] = useState(10);
+  const [entriesPerPage] = useState(10);
   const [currentPage, setCurrentPage] = useState(1);
 
   // Confirm Modal

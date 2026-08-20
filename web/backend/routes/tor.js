@@ -4,25 +4,23 @@ const multer = require('multer');
 const csv = require('csv-parser');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
+const { Readable } = require('stream');
 const PDFDocument = require('pdfkit');
 const qrcode = require('qrcode');
 const TOR = require('../models/TOR');
 const ActivityLog = require('../models/ActivityLog');
+const blockchainService = require('../services/blockchainService');
 const { protect, superAdminOnly, registrarOrSuperAdmin } = require('../middleware/authMiddleware');
+const {
+    decodePdf,
+    encodePdf,
+    storedPdfMarker,
+} = require('../utils/storedPdf');
 
-// Configure multer for CSV uploads
-const csvStorage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        const uploadDir = path.join(__dirname, '..', 'uploads', 'tor');
-        if (!fs.existsSync(uploadDir)) {
-            fs.mkdirSync(uploadDir, { recursive: true });
-        }
-        cb(null, uploadDir);
-    },
-    filename: (req, file, cb) => {
-        cb(null, `csv-${Date.now()}-${file.originalname}`);
-    }
-});
+// Vercel's deployment filesystem is read-only and non-durable. Parse bounded
+// CSV uploads directly from memory.
+const csvStorage = multer.memoryStorage();
 
 const uploadCSV = multer({
     storage: csvStorage,
@@ -33,7 +31,7 @@ const uploadCSV = multer({
             cb(new Error('Only CSV files are allowed'), false);
         }
     },
-    limits: { fileSize: 5 * 1024 * 1024 }
+    limits: { fileSize: 4 * 1024 * 1024 }
 });
 
 // Helper: compute GWA
@@ -60,7 +58,7 @@ router.post('/upload-csv', protect, registrarOrSuperAdmin, uploadCSV.single('csv
         let studentInfo = null;
 
         await new Promise((resolve, reject) => {
-            fs.createReadStream(req.file.path)
+            Readable.from([req.file.buffer])
                 .pipe(csv())
                 .on('data', (row) => {
                     if (!studentInfo) {
@@ -85,12 +83,10 @@ router.post('/upload-csv', protect, registrarOrSuperAdmin, uploadCSV.single('csv
         });
 
         if (!studentInfo || !studentInfo.studentId) {
-            fs.unlinkSync(req.file.path);
             return res.status(400).json({ message: 'CSV is missing required Student ID column' });
         }
 
         if (grades.length === 0) {
-            fs.unlinkSync(req.file.path);
             return res.status(400).json({ message: 'CSV contains no grade records' });
         }
 
@@ -109,8 +105,6 @@ router.post('/upload-csv', protect, registrarOrSuperAdmin, uploadCSV.single('csv
             status: 'Draft',
             generatedBy: req.user.email
         });
-
-        fs.unlinkSync(req.file.path);
 
         await ActivityLog.create({
             userEmail: req.user.email,
@@ -192,19 +186,32 @@ router.post('/:id/generate', protect, registrarOrSuperAdmin, async (req, res) =>
     try {
         const tor = await TOR.findOne({ torId: req.params.id });
         if (!tor) return res.status(404).json({ message: 'TOR not found' });
-
-        const pdfDir = path.join(__dirname, '..', 'uploads', 'tor');
-        if (!fs.existsSync(pdfDir)) {
-            fs.mkdirSync(pdfDir, { recursive: true });
+        if (tor.status === 'Released') {
+            return res.status(409).json({ message: 'A released TOR is immutable.' });
         }
+
         const pdfFilename = `${tor.torId}-${tor.studentId}.pdf`;
-        const pdfPath = path.join(pdfDir, pdfFilename);
 
         const frontendUrl = process.env.FRONTEND_URL || req.get('origin') || 'http://localhost:5173';
-        await generateTORPdf(tor, pdfPath, frontendUrl);
+        const pdfBuffer = await generateTORPdf(tor, frontendUrl);
+        const documentHash = crypto.createHash('sha256').update(pdfBuffer).digest('hex');
+        const blockchainReceipt = await blockchainService.anchorDocumentHash(
+            tor.torId,
+            tor.studentId,
+            tor.studentName,
+            documentHash,
+        );
+        if (!blockchainReceipt?.success) {
+            return res.status(502).json({ message: 'Blockchain recording failed.' });
+        }
 
-        tor.pdfPath = pdfFilename;
-        tor.status = 'Finalized';
+        tor.pdfPath = storedPdfMarker(pdfFilename);
+        tor.pdfData = encodePdf(pdfBuffer);
+        tor.documentHash = documentHash;
+        tor.blockchainStatus = 'Recorded';
+        tor.blockchainTxHash = blockchainReceipt.txID;
+        tor.blockchainBlockNumber = blockchainReceipt.blockNumber;
+        tor.status = 'Released';
         await tor.save();
 
         await ActivityLog.create({
@@ -216,26 +223,39 @@ router.post('/:id/generate', protect, registrarOrSuperAdmin, async (req, res) =>
             details: `Generated TOR PDF for ${tor.studentName} (${tor.studentId})`
         });
 
-        res.json({ message: 'TOR generated successfully', tor });
+        res.json({ message: 'TOR generated and recorded successfully', tor });
     } catch (error) {
         console.error('Error generating TOR:', error);
-        res.status(500).json({ message: 'Error generating TOR' });
+        res.status(error?.code === 'BLOCKCHAIN_UNAVAILABLE' ? 503 : 500).json({
+            message: error?.code === 'BLOCKCHAIN_UNAVAILABLE'
+                ? 'Blockchain is unavailable. The TOR was not released.'
+                : 'Error generating TOR'
+        });
     }
 });
 
 // @route   GET /api/tor/:id/download
 router.get('/:id/download', protect, registrarOrSuperAdmin, async (req, res) => {
     try {
-        const tor = await TOR.findOne({ torId: req.params.id });
+        const tor = await TOR.findOne({ torId: req.params.id })
+            .select('+pdfData');
         if (!tor) return res.status(404).json({ message: 'TOR not found' });
         if (!tor.pdfPath) return res.status(400).json({ message: 'TOR PDF has not been generated yet' });
 
+        const pdfBuffer = decodePdf(tor.pdfData) || decodePdf(tor.pdfPath);
+        if (pdfBuffer) {
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader(
+                'Content-Disposition',
+                `attachment; filename="TOR-${tor.studentName}-${tor.studentId}.pdf"`,
+            );
+            return res.send(pdfBuffer);
+        }
         const pdfFullPath = path.join(__dirname, '..', 'uploads', 'tor', tor.pdfPath);
         if (!fs.existsSync(pdfFullPath)) {
             return res.status(404).json({ message: 'PDF file not found on server' });
         }
-
-        res.download(pdfFullPath, `TOR-${tor.studentName}-${tor.studentId}.pdf`);
+        return res.download(pdfFullPath, `TOR-${tor.studentName}-${tor.studentId}.pdf`);
     } catch (error) {
         res.status(500).json({ message: 'Error downloading TOR PDF' });
     }
@@ -247,7 +267,7 @@ router.delete('/:id', protect, superAdminOnly, async (req, res) => {
         const tor = await TOR.findOne({ torId: req.params.id });
         if (!tor) return res.status(404).json({ message: 'TOR not found' });
 
-        if (tor.pdfPath) {
+        if (tor.pdfPath && !tor.pdfPath.startsWith('stored:')) {
             const pdfFullPath = path.join(__dirname, '..', 'uploads', 'tor', tor.pdfPath);
             if (fs.existsSync(pdfFullPath)) {
                 fs.unlinkSync(pdfFullPath);
@@ -274,7 +294,7 @@ router.delete('/:id', protect, superAdminOnly, async (req, res) => {
 // ============================================================
 // PDF Generation Helper
 // ============================================================
-async function generateTORPdf(tor, outputPath, frontendUrl) {
+async function generateTORPdf(tor, frontendUrl) {
     const qrUrl = `${frontendUrl}/verify/results?hash=${tor.torId}`;
     const qrDataUri = await qrcode.toDataURL(qrUrl, { width: 100, margin: 1 });
 
@@ -283,8 +303,10 @@ async function generateTORPdf(tor, outputPath, frontendUrl) {
             size: 'LETTER',
             margins: { top: 50, bottom: 50, left: 60, right: 60 }
         });
-        const stream = fs.createWriteStream(outputPath);
-        doc.pipe(stream);
+        const chunks = [];
+        doc.on('data', (chunk) => chunks.push(chunk));
+        doc.on('end', () => resolve(Buffer.concat(chunks)));
+        doc.on('error', reject);
 
         const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
 
@@ -447,8 +469,6 @@ async function generateTORPdf(tor, outputPath, frontendUrl) {
 
 
         doc.end();
-        stream.on('finish', resolve);
-        stream.on('error', reject);
     });
 }
 

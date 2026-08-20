@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { QrCode, FileSearch, ShieldCheck, ArrowRight, Upload, Info } from 'lucide-react';
 import ValidationNavbar from '../../components/ValidationPageNavBar';

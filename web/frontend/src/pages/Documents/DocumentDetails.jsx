@@ -61,9 +61,9 @@ const DocumentDetails = () => {
                 setActioning(true);
                 setMessage(null);
                 try {
-                    const res = await api.post(`/documents/${id}/finalize`);
-                    setDoc(res.data);
-                    setMessage({ type: 'success', text: 'Document finalized successfully!' });
+                    const res = await api.post(`/documents/${id}/generate-hash`);
+                    setDoc(res.data.document);
+                    setMessage({ type: 'success', text: 'Document securely finalized successfully!' });
                 } catch (error) {
                     setMessage({ type: 'error', text: error.response?.data?.message || 'Error finalizing document' });
                 } finally {
@@ -85,7 +85,7 @@ const DocumentDetails = () => {
             link.click();
             link.remove();
             window.URL.revokeObjectURL(url);
-        } catch (error) {
+        } catch {
             setMessage({ type: 'error', text: 'Error downloading PDF' });
         } finally {
             setActioning(false);

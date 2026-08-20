@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
+const { protectPrivateUserFields } = require('../../utils/privateUserFields');
 
 const superAdminSchema = new mongoose.Schema({
   email: {
@@ -45,5 +46,7 @@ superAdminSchema.pre('save', async function() {
 superAdminSchema.methods.comparePassword = async function(candidatePassword) {
   return bcrypt.compare(candidatePassword, this.password);
 };
+
+protectPrivateUserFields(superAdminSchema);
 
 module.exports = mongoose.model('SuperAdmin', superAdminSchema);

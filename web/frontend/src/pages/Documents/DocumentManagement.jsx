@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Upload, FileText, Search, Filter, Trash2, Eye, FolderOpen, AlertCircle, CheckCircle2, X, FileUp, Plus, Download } from 'lucide-react';
+import { Upload, FileText, Search, Filter, Trash2, Eye, FolderOpen, Download } from 'lucide-react';
 import Layout from '../../components/Layout';
 import ConfirmModal from '../../components/ConfirmModal';
 import FeedbackModal from '../../components/FeedbackModal';
@@ -8,13 +8,6 @@ import api from '../../api';
 import { CreateDocumentModal, TORUploadModal, DiplomaUploadModal } from './DocumentModals';
 
 const CATEGORIES = ['All', 'Certification', 'Certified True Copy', 'Transcript of Records', 'Diploma'];
-
-const CERT_TYPES = [
-  'Certificate of Enrollment', 'Certificate of Good Moral', 'Grade Certification',
-  'Certificate of Candidacy for Graduation', 'Certificate of Units Earned',
-  'Certificate of Assessment', 'Certificate of Registration'
-];
-const CTC_TYPES = ['CTC of Certificate of Matriculation', 'CTC of Diploma', 'CTC of Curriculum'];
 
 const DocumentManagement = () => {
     const navigate = useNavigate();
@@ -136,7 +129,7 @@ const DocumentManagement = () => {
                         await api.delete(`/documents/${item.id}`);
                     }
                     fetchAll();
-                } catch (error) {
+                } catch {
                     showFeedback({
                         title: 'Delete Failed',
                         message: 'We couldn\'t delete this document right now. Please try again.',
@@ -163,7 +156,7 @@ const DocumentManagement = () => {
             link.click();
             link.remove();
             window.URL.revokeObjectURL(url);
-        } catch (error) {
+        } catch {
             showFeedback({
                 title: 'Download Failed',
                 message: 'There was an issue downloading your PDF. Please try again.',

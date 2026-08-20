@@ -86,7 +86,7 @@ const TORDetails = () => {
             link.click();
             link.remove();
             window.URL.revokeObjectURL(url);
-        } catch (error) {
+        } catch {
             setMessage({ type: 'error', text: 'Error downloading PDF' });
         } finally {
             setDownloading(false);

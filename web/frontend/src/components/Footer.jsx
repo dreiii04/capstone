@@ -1,5 +1,3 @@
-import React from 'react';
-
 const Footer = () => {
   return (
     // Reduced vertical padding from py-16 to py-10 for a more compact height

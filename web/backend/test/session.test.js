@@ -5,6 +5,8 @@ const jwt = require('jsonwebtoken');
 process.env.JWT_SECRET = 'test-only-secret-that-is-long-enough-for-hs256';
 
 const { issueSession, serializeUser } = require('../services/sessionService');
+const { tokenPredatesSecurityChange } = require('../middleware/authMiddleware');
+const Registrar = require('../models/Registrar');
 
 test('shared sessions support both web and mobile token contracts', async () => {
   let persistedUpdate;
@@ -47,4 +49,43 @@ test('profile serialization never exposes authentication secrets', () => {
   });
   assert.equal(profile.password, undefined);
   assert.equal(profile.refreshTokens, undefined);
+});
+
+test('user model serialization never exposes password or refresh-token hashes', () => {
+  const user = new Registrar({
+    registrarId: 'REG-TEST',
+    name: 'Test Registrar',
+    email: 'registrar@example.com',
+    password: 'password-hash',
+    refreshTokens: [{
+      tokenHash: 'refresh-hash',
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 60_000),
+    }],
+  });
+
+  const json = user.toJSON();
+  const object = user.toObject();
+  for (const output of [json, object]) {
+    assert.equal(output.password, undefined);
+    assert.equal(output.refreshTokens, undefined);
+  }
+});
+
+test('a session issued immediately after a password change remains valid', () => {
+  const changedAt = new Date('2026-08-20T05:40:01.450Z');
+  const issuedAt = Math.floor(changedAt.getTime() / 1000);
+
+  assert.equal(
+    tokenPredatesSecurityChange({ iat: issuedAt }, {
+      tokensValidAfter: changedAt,
+    }),
+    false,
+  );
+  assert.equal(
+    tokenPredatesSecurityChange({ iat: issuedAt - 1 }, {
+      tokensValidAfter: changedAt,
+    }),
+    true,
+  );
 });

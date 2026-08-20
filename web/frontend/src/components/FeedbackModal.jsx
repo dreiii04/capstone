@@ -1,4 +1,3 @@
-import React from 'react';
 import { X, AlertCircle, CheckCircle2, Info } from 'lucide-react';
 
 const FeedbackModal = ({

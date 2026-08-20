@@ -8,13 +8,11 @@ import smallLogo from '../../assets/verifitor_logo.png';
 
 const ForgotPassword = () => {
     const [email, setEmail] = useState('');
-    const [message, setMessage] = useState('');
     const [error, setError] = useState('');
     const navigate = useNavigate();
 
     const handleSendOTP = async (e) => {
         e.preventDefault();
-        setMessage('');
         setError('');
         try {
             // Simulated API call for sending OTP

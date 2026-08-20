@@ -1,217 +1,189 @@
 const express = require('express');
-const router = express.Router();
+
 const Request = require('../models/Request');
-const Transaction = require('../models/Transaction');
-const BlockchainTransaction = require('../blockchain_essentials/modelBC/blockchainTransactionModel');
 const TOR = require('../models/TOR');
 const Diploma = require('../models/Diploma');
 const Document = require('../models/Document');
-const Student = require('../models/Users/Student');
+const BlockchainTransaction = require('../blockchain_essentials/modelBC/blockchainTransactionModel');
+const blockchainService = require('../services/blockchainService');
 
-// @route   GET /api/verify/:hash
-// @desc    Verify a document by its hash
-router.get('/:hash', async (req, res) => {
-    try {
-        const hash = req.params.hash;
+const router = express.Router();
 
-        // 1. Try to find in Request
-        const request = await Request.findOne({ 
-            $or: [
-                { documentHash: hash },
-                { requestId: hash }
-            ]
-        });
-        
-        if (request) {
-            // Check for blockchain record
-            const blockchainTx = await BlockchainTransaction.findOne({ 
-                $or: [
-                    { studentIDNumber: request.studentId },
-                    { 
-                        nameOfStudent: request.name,
-                        typeOfDocument: request.documentType || request.document_type || 'Document'
-                    }
-                ]
-            }).sort({ createdAt: -1 });
+function isBlockchainDocument(value) {
+  const type = String(value || '').toLowerCase();
+  return type.includes('transcript') || type.includes('tor') ||
+    type.includes('diploma');
+}
 
-            let ownerType = 'Student';
-            if (request.studentId) {
-                const student = await Student.findOne({ studentId: request.studentId });
-                if (student && student.role === 'alumni') ownerType = 'Alumni';
-            }
+async function buildVerifiedPayload(record) {
+  const blockchainRequired = isBlockchainDocument(record.documentType);
+  let ledgerRecord = null;
+  let storedTransaction = null;
 
-            return res.json({
-                success: true,
-                data: {
-                    requestId: request.requestId,
-                    ownerName: request.name,
-                    ownerType: ownerType,
-                    status: request.status,
-                    documentType: request.documentType || 'Document',
-                    issuedDate: request.updatedAt,
-                    blockchainRecord: blockchainTx ? {
-                        txID: blockchainTx.referenceNumber,
-                        date: blockchainTx.createdAt,
-                        status: blockchainTx.blockchainStatus,
-                        txHash: blockchainTx.blockchainTxHash,
-                        blockNumber: blockchainTx.blockchainBlockNumber,
-                        idNumber: blockchainTx.studentIDNumber,
-                        yearGraduated: blockchainTx.yearGraduated,
-                        ownerType: blockchainTx.ownerType,
-                        course: blockchainTx.course,
-                        yearLevel: blockchainTx.yearLevel
-                    } : null
-                }
-            });
-        }
-
-        // 2. Try to find in TOR
-        const tor = await TOR.findOne({ torId: hash });
-        if (tor) {
-            const blockchainTx = await BlockchainTransaction.findOne({ 
-                $or: [
-                    { studentIDNumber: tor.studentId },
-                    { 
-                        nameOfStudent: tor.studentName,
-                        typeOfDocument: 'Transcript of Records'
-                    }
-                ]
-            }).sort({ createdAt: -1 });
-
-            let ownerType = 'Student';
-            if (tor.studentId) {
-                const student = await Student.findOne({ studentId: tor.studentId });
-                if (student && student.role === 'alumni') ownerType = 'Alumni';
-            }
-
-            return res.json({
-                success: true,
-                data: {
-                    requestId: tor.torId,
-                    ownerName: tor.studentName,
-                    ownerType: ownerType,
-                    status: tor.status === 'Finalized' ? 'Released' : tor.status,
-                    documentType: 'Transcript of Records',
-                    issuedDate: tor.updatedAt,
-                    blockchainRecord: blockchainTx ? {
-                        txID: blockchainTx.referenceNumber,
-                        date: blockchainTx.createdAt,
-                        status: blockchainTx.blockchainStatus,
-                        txHash: blockchainTx.blockchainTxHash,
-                        blockNumber: blockchainTx.blockchainBlockNumber,
-                        idNumber: blockchainTx.studentIDNumber,
-                        yearGraduated: blockchainTx.yearGraduated,
-                        ownerType: blockchainTx.ownerType,
-                        course: blockchainTx.course,
-                        yearLevel: blockchainTx.yearLevel
-                    } : null
-                }
-            });
-        }
-
-        // 3. Try to find in Diploma
-        const diploma = await Diploma.findOne({ diplomaId: hash });
-        if (diploma) {
-            const blockchainTx = await BlockchainTransaction.findOne({ 
-                $or: [
-                    { studentIDNumber: diploma.studentId },
-                    { 
-                        nameOfStudent: diploma.studentName,
-                        typeOfDocument: 'Diploma'
-                    }
-                ]
-            }).sort({ createdAt: -1 });
-
-            let ownerType = 'Student';
-            if (diploma.studentId) {
-                const student = await Student.findOne({ studentId: diploma.studentId });
-                if (student && student.role === 'alumni') ownerType = 'Alumni';
-            }
-
-            return res.json({
-                success: true,
-                data: {
-                    requestId: diploma.diplomaId,
-                    ownerName: diploma.studentName,
-                    ownerType: ownerType,
-                    status: diploma.status === 'Finalized' ? 'Released' : diploma.status,
-                    documentType: 'Diploma',
-                    issuedDate: diploma.updatedAt,
-                    blockchainRecord: blockchainTx ? {
-                        txID: blockchainTx.referenceNumber,
-                        date: blockchainTx.createdAt,
-                        status: blockchainTx.blockchainStatus,
-                        txHash: blockchainTx.blockchainTxHash,
-                        blockNumber: blockchainTx.blockchainBlockNumber,
-                        idNumber: blockchainTx.studentIDNumber,
-                        yearGraduated: blockchainTx.yearGraduated,
-                        ownerType: blockchainTx.ownerType,
-                        course: blockchainTx.course,
-                        yearLevel: blockchainTx.yearLevel
-                    } : null
-                }
-            });
-        }
-
-        // 4. Try to find in Document (generic/fallback)
-        const doc = await Document.findOne({
-            $or: [
-                { documentId: hash },
-                { documentHash: hash }
-            ]
-        });
-        if (doc) {
-            const blockchainTx = await BlockchainTransaction.findOne({ 
-                $or: [
-                    { studentIDNumber: doc.studentId },
-                    { 
-                        nameOfStudent: doc.studentName,
-                        typeOfDocument: doc.documentType
-                    }
-                ]
-            }).sort({ createdAt: -1 });
-
-            let ownerType = 'Student';
-            if (doc.studentId) {
-                const student = await Student.findOne({ studentId: doc.studentId });
-                if (student && student.role === 'alumni') ownerType = 'Alumni';
-            }
-
-            return res.json({
-                success: true,
-                data: {
-                    requestId: doc.documentId,
-                    ownerName: doc.studentName,
-                    ownerType: ownerType,
-                    status: doc.status === 'Finalized' ? 'Released' : doc.status,
-                    documentType: doc.documentType,
-                    issuedDate: doc.updatedAt,
-                    blockchainRecord: blockchainTx ? {
-                        txID: blockchainTx.referenceNumber,
-                        date: blockchainTx.createdAt,
-                        status: blockchainTx.blockchainStatus,
-                        txHash: blockchainTx.blockchainTxHash,
-                        blockNumber: blockchainTx.blockchainBlockNumber,
-                        idNumber: blockchainTx.studentIDNumber,
-                        yearGraduated: blockchainTx.yearGraduated,
-                        ownerType: blockchainTx.ownerType,
-                        course: blockchainTx.course,
-                        yearLevel: blockchainTx.yearLevel
-                    } : null
-                }
-            });
-        }
-
-        // If none found
-        return res.status(404).json({ 
-            success: false, 
-            message: 'Invalid Document Hash. This document was not issued by our system.' 
-        });
-    } catch (error) {
-        console.error('Verification error:', error);
-        res.status(500).json({ success: false, message: 'Server error during verification' });
+  if (blockchainRequired) {
+    ledgerRecord = await blockchainService.verifyDocumentHash(record.documentHash);
+    if (ledgerRecord?.error || ledgerRecord?.status === 'LEDGER UNAVAILABLE') {
+      const error = new Error('Live blockchain verification is unavailable.');
+      error.code = 'LEDGER_UNAVAILABLE';
+      throw error;
     }
+    if (!ledgerRecord?.isVerified ||
+        (ledgerRecord.documentId && ledgerRecord.documentId !== record.requestId)) {
+      return null;
+    }
+    storedTransaction = await BlockchainTransaction.findOne({
+      requestId: record.requestId,
+      documentHash: record.documentHash,
+      blockchainStatus: 'Recorded',
+    }).sort({ createdAt: -1 });
+  }
+
+  return {
+    requestId: record.requestId,
+    ownerName: record.ownerName,
+    ownerType: storedTransaction?.ownerType || record.ownerType || 'Student',
+    status: record.status,
+    documentType: record.documentType,
+    issuedDate: record.issuedDate,
+    verificationMethod: blockchainRequired ? 'blockchain' : 'database',
+    blockchainRecord: blockchainRequired ? {
+      txID: storedTransaction?.referenceNumber || record.blockchainTxHash || '',
+      txHash: storedTransaction?.blockchainTxHash || record.blockchainTxHash || '',
+      blockNumber: storedTransaction?.blockchainBlockNumber ||
+        record.blockchainBlockNumber || ledgerRecord.blockNumber || null,
+      date: storedTransaction?.updatedAt || record.issuedDate,
+      status: ledgerRecord.status || 'Secured on Live Ledger',
+      contractAddress: ledgerRecord.contractAddress || '',
+      idNumber: storedTransaction?.studentIDNumber || record.studentId || '',
+      yearGraduated: storedTransaction?.yearGraduated || '',
+      course: storedTransaction?.course || record.course || '',
+      yearLevel: storedTransaction?.yearLevel || record.yearLevel || '',
+    } : null,
+  };
+}
+
+router.get('/:identifier', async (req, res) => {
+  try {
+    const identifier = String(req.params.identifier || '').trim();
+    if (!identifier || identifier.length > 200) {
+      return res.status(400).json({
+        success: false,
+        message: 'A valid verification code is required.',
+      });
+    }
+
+    const request = await Request.findOne({
+      status: 'Released',
+      hasDocument: true,
+      $or: [
+        { documentHash: identifier },
+        { verificationCode: identifier },
+      ],
+    });
+    if (request) {
+      if (isBlockchainDocument(request.documentType) &&
+          request.blockchainStatus !== 'Recorded') {
+        return res.status(404).json({
+          success: false,
+          message: 'This document does not have a confirmed ledger record.',
+        });
+      }
+      const data = await buildVerifiedPayload({
+        requestId: request.requestId,
+        ownerName: request.name,
+        status: request.status,
+        documentType: request.documentType,
+        issuedDate: request.updatedAt,
+        documentHash: request.documentHash,
+        blockchainTxHash: request.blockchainTxHash,
+        blockchainBlockNumber: request.blockchainBlockNumber,
+        studentId: request.studentId,
+        course: request.course,
+        yearLevel: request.yearLevel,
+      });
+      if (data) return res.json({ success: true, data });
+    }
+
+    const tor = await TOR.findOne({
+      torId: identifier,
+      status: 'Released',
+      documentHash: { $exists: true, $ne: '' },
+    });
+    if (tor) {
+      const data = await buildVerifiedPayload({
+        requestId: tor.torId,
+        ownerName: tor.studentName,
+        status: 'Released',
+        documentType: 'Transcript of Records',
+        issuedDate: tor.updatedAt,
+        documentHash: tor.documentHash,
+        blockchainTxHash: tor.blockchainTxHash,
+        blockchainBlockNumber: tor.blockchainBlockNumber,
+        studentId: tor.studentId,
+        course: tor.course,
+        yearLevel: tor.yearLevel,
+      });
+      if (data) return res.json({ success: true, data });
+    }
+
+    const diploma = await Diploma.findOne({
+      diplomaId: identifier,
+      status: 'Released',
+      documentHash: { $exists: true, $ne: '' },
+    });
+    if (diploma) {
+      const data = await buildVerifiedPayload({
+        requestId: diploma.diplomaId,
+        ownerName: diploma.studentName,
+        status: 'Released',
+        documentType: 'Diploma',
+        issuedDate: diploma.updatedAt,
+        documentHash: diploma.documentHash,
+        blockchainTxHash: diploma.blockchainTxHash,
+        blockchainBlockNumber: diploma.blockchainBlockNumber,
+        studentId: diploma.studentId,
+        course: diploma.course,
+      });
+      if (data) return res.json({ success: true, data });
+    }
+
+    const document = await Document.findOne({
+      documentHash: identifier,
+      status: { $in: ['Finalized', 'Released'] },
+    });
+    if (document) {
+      const data = await buildVerifiedPayload({
+        requestId: document.documentId,
+        ownerName: document.studentName,
+        status: document.status === 'Finalized' ? 'Released' : document.status,
+        documentType: document.documentType,
+        issuedDate: document.updatedAt,
+        documentHash: document.documentHash,
+        studentId: document.studentId,
+        course: document.course,
+        yearLevel: document.yearLevel,
+      });
+      if (data) return res.json({ success: true, data });
+    }
+
+    return res.status(404).json({
+      success: false,
+      message: 'The document is not released or its integrity proof is invalid.',
+    });
+  } catch (error) {
+    if (error?.code === 'LEDGER_UNAVAILABLE') {
+      return res.status(503).json({
+        success: false,
+        indeterminate: true,
+        message: 'Live blockchain verification is temporarily unavailable.',
+      });
+    }
+    console.error('Verification error:', error.message);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error during verification',
+    });
+  }
 });
 
 module.exports = router;
-

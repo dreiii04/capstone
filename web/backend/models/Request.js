@@ -81,8 +81,33 @@ const requestSchema = new mongoose.Schema({
   documentHash: {
     type: String
   },
+  verificationCode: {
+    type: String,
+    select: false,
+    index: true,
+    sparse: true,
+    unique: true
+  },
   documentFile: {
-    type: String
+    type: String,
+    select: false
+  },
+  hasDocument: {
+    type: Boolean,
+    default: false
+  },
+  blockchainStatus: {
+    type: String,
+    enum: ['', 'Pending', 'Recorded', 'Failed'],
+    default: ''
+  },
+  blockchainTxHash: {
+    type: String,
+    default: ''
+  },
+  blockchainBlockNumber: {
+    type: Number,
+    default: null
   },
   dateRequested: {
     type: Date,

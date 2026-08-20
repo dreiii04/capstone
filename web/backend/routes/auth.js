@@ -11,6 +11,7 @@ const Student = require('../models/Users/Student');
 const Alumni = require('../models/Users/Alumni');
 const SuperAdmin = require('../models/Users/SuperAdmin');
 const Registrar = require('../models/Registrar');
+const Admin = require('../models/Users/Admin');
 const ActivityLog = require('../models/ActivityLog');
 const AuthChallenge = require('../models/AuthChallenge');
 const { sendOtpEmail } = require('../services/mailService');
@@ -291,7 +292,7 @@ router.post('/login', loginProgressiveLimiter, loginValidation, validate, async 
   try {
     const email = normalizeEmail(req.body.email);
     const { password } = req.body;
-    const user = await findUserByEmail(email);
+    const user = await findUserByEmail(email, { includePassword: true });
 
     if (!user) {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
@@ -526,6 +527,11 @@ router.post('/legacy/forgot-password', async (req, res) => {
     }
 
     if (!user) {
+      user = await Admin.findOne({ email });
+      if (user) modelName = 'Admin';
+    }
+
+    if (!user) {
       return res.status(404).json({ success: false, message: 'No account found with that email' });
     }
 
@@ -596,6 +602,7 @@ router.post('/legacy/reset-password', async (req, res) => {
     if (modelName === 'Student') userModel = Student;
     else if (modelName === 'Alumni') userModel = Alumni;
     else if (modelName === 'SuperAdmin') userModel = SuperAdmin;
+    else if (modelName === 'Admin') userModel = Admin;
     else userModel = Registrar;
 
     const user = await userModel.findOne({ email });
@@ -633,12 +640,7 @@ router.put('/profile', protect, updateProfileValidation, validate, async (req, r
   try {
     const { name, firstName, lastName, profilePic, course, yearLevel, phoneNumber } = req.body;
     
-    let userModel;
-    const role = (req.user.role || '').toLowerCase();
-    if (role === 'super admin') userModel = SuperAdmin;
-    else if (role.includes('registrar')) userModel = Registrar;
-    else if (role === 'alumni') userModel = Alumni;
-    else userModel = Student;
+    const userModel = req.authUser.constructor;
 
     const updateData = {};
     if (name) {
@@ -673,14 +675,9 @@ router.put('/change-password', protect, async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
     
-    let userModel;
-    const role = (req.user.role || '').toLowerCase();
-    if (role === 'super admin') userModel = SuperAdmin;
-    else if (role.includes('registrar')) userModel = Registrar;
-    else if (role === 'alumni') userModel = Alumni;
-    else userModel = Student;
+    const userModel = req.authUser.constructor;
 
-    const user = await userModel.findById(req.user.id);
+    const user = await userModel.findById(req.user.id).select('+password');
     if (!user) return res.status(404).json({ success: false, message: 'User not found.' });
     if (!strongPassword.test(String(newPassword || ''))) {
       return res.status(400).json({

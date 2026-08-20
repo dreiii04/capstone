@@ -1,10 +1,6 @@
-import React from 'react';
-import { useNavigate } from 'react-router-dom';
 import verifitorLogo from '../assets/verifitor_logo.png'; // Make sure to have the logo in this path
 
 const ValidationNavbar = () => {
-  const navigate = useNavigate();
-
   return (
     <nav className="bg-[#3d5a73] shadow-md w-full">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

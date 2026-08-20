@@ -1,7 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const ActivityLog = require('../models/ActivityLog');
-const { protect, superAdminOnly } = require('../middleware/authMiddleware');
+const {
+  protect,
+  registrarOrSuperAdmin,
+  superAdminOnly,
+} = require('../middleware/authMiddleware');
 
 // Get all activity logs (export as CSV) - Super Admin Only
 router.get('/export', protect, superAdminOnly, async (req, res) => {
@@ -32,7 +36,7 @@ router.get('/', protect, superAdminOnly, async (req, res) => {
 });
 
 // Create a log entry
-router.post('/', protect, async (req, res) => {
+router.post('/', protect, registrarOrSuperAdmin, async (req, res) => {
     try {
         const { action, details, type, status } = req.body;
         const newLog = await ActivityLog.create({

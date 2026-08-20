@@ -11,6 +11,16 @@ const getBaseURL = () => {
   return 'https://cp-three-lemon.vercel.app/api';
 };
 
+export const resolveApiAssetUrl = (value) => {
+  if (!value) return '';
+  try {
+    return new URL(value).toString();
+  } catch {
+    const apiOrigin = new URL(getBaseURL(), window.location.origin).origin;
+    return new URL(value, `${apiOrigin}/`).toString();
+  }
+};
+
 const api = axios.create({
   baseURL: getBaseURL(),
 });

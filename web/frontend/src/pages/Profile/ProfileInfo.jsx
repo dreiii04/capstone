@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Layout from '../../components/Layout';
-import { User, Edit3, LogOut } from 'lucide-react';
+import { User } from 'lucide-react';
+import { resolveApiAssetUrl } from '../../api';
 
 const ProfileInfo = () => {
     const navigate = useNavigate();
@@ -26,12 +27,6 @@ const ProfileInfo = () => {
         }
     }, []);
 
-    const handleLogout = () => {
-        localStorage.removeItem('token');
-        localStorage.removeItem('adminUser');
-        navigate('/login');
-    };
-
     return (
         <Layout>
             <div className="max-w-[900px] mx-auto p-4 sm:p-6 lg:p-8 font-sans">
@@ -45,7 +40,7 @@ const ProfileInfo = () => {
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 mb-6 flex items-center gap-6">
                     <div className="w-24 h-24 rounded-full bg-black flex items-center justify-center overflow-hidden flex-shrink-0">
                         {user.profilePic ? (
-                            <img src={user.profilePic.startsWith('http') ? user.profilePic : `http://localhost:5000${user.profilePic}`} alt="Profile" className="w-full h-full object-cover" />
+                            <img src={resolveApiAssetUrl(user.profilePic)} alt="Profile" className="w-full h-full object-cover" />
                         ) : (
                             <User size={48} color="white" />
                         )}

@@ -132,7 +132,7 @@ const Requests = () => {
             if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
             return 0;
         });
-    }, [requests, searchTerm, filterStatus, filterType, filterUserRole, filterProgram, filterUserStatus, startDate, endDate]);
+    }, [requests, searchTerm, filterStatus, filterType, filterUserRole, filterProgram, filterUserStatus, startDate, endDate, sortConfig]);
 
     // Pagination Logic
     const totalPages = Math.ceil(filteredRequests.length / entriesPerPage);

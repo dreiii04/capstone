@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { applyStoredPdfProtection } = require('../utils/storedPdf');
 
 const documentSchema = new mongoose.Schema({
   documentId: {
@@ -50,9 +51,27 @@ const documentSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
+  pdfData: {
+    type: String,
+    default: '',
+    select: false
+  },
   documentHash: {
     type: String,
     default: ''
+  },
+  blockchainStatus: {
+    type: String,
+    enum: ['', 'Recorded', 'Failed'],
+    default: ''
+  },
+  blockchainTxHash: {
+    type: String,
+    default: ''
+  },
+  blockchainBlockNumber: {
+    type: Number,
+    default: null
   },
   notes: {
     type: String,
@@ -63,5 +82,7 @@ const documentSchema = new mongoose.Schema({
     default: ''
   }
 }, { timestamps: true });
+
+applyStoredPdfProtection(documentSchema);
 
 module.exports = mongoose.model('Document', documentSchema);

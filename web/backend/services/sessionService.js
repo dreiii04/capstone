@@ -5,6 +5,7 @@ const Student = require('../models/Users/Student');
 const Alumni = require('../models/Users/Alumni');
 const SuperAdmin = require('../models/Users/SuperAdmin');
 const Registrar = require('../models/Registrar');
+const Admin = require('../models/Users/Admin');
 
 const ACCESS_TOKEN_TTL_SECONDS = Number.parseInt(
   process.env.JWT_ACCESS_TTL_SECONDS || '86400',
@@ -15,7 +16,7 @@ const REFRESH_TOKEN_TTL_DAYS = Number.parseInt(
   10
 );
 
-const allUserModels = [Student, Alumni, SuperAdmin, Registrar];
+const allUserModels = [Student, Alumni, SuperAdmin, Registrar, Admin];
 
 function jwtSecret() {
   const secret = String(process.env.JWT_SECRET || '').trim();
@@ -38,7 +39,7 @@ function isEndUser(userOrPayload) {
 
 function isStaff(userOrPayload) {
   const role = normalizedRole(userOrPayload?.role);
-  return role === 'super admin' || role.includes('registrar');
+  return role === 'super admin' || role === 'admin' || role.includes('registrar');
 }
 
 function isInactive(user) {
@@ -52,14 +53,17 @@ function modelForRole(role) {
   if (normalized === 'alumni') return Alumni;
   if (normalized === 'super admin') return SuperAdmin;
   if (normalized.includes('registrar')) return Registrar;
+  if (normalized === 'admin') return Admin;
   return null;
 }
 
-async function findUserByEmail(email) {
+async function findUserByEmail(email, { includePassword = false } = {}) {
   const normalized = normalizeEmail(email);
   if (!normalized) return null;
   for (const Model of allUserModels) {
-    const user = await Model.findOne({ email: normalized });
+    const query = Model.findOne({ email: normalized });
+    if (includePassword) query.select('+password');
+    const user = await query;
     if (user) return user;
   }
   return null;

@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
+const { protectPrivateUserFields } = require('../utils/privateUserFields');
 
 const registrarSchema = new mongoose.Schema({
   registrarId: {
@@ -55,5 +56,7 @@ registrarSchema.pre('save', async function() {
 registrarSchema.methods.comparePassword = async function(candidatePassword) {
   return bcrypt.compare(candidatePassword, this.password);
 };
+
+protectPrivateUserFields(registrarSchema);
 
 module.exports = mongoose.model('Registrar', registrarSchema);

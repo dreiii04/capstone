@@ -37,6 +37,11 @@ server.listen(0, '127.0.0.1', async () => {
       );
     }
 
+    const backend = await import('../app.js');
+    if (!backend.isBackendInitialized()) {
+      throw new Error('The Vercel entrypoint did not initialize the backend.');
+    }
+
     console.log('Vercel backend entrypoint smoke test passed.');
   } catch (error) {
     console.error('Vercel backend entrypoint smoke test failed.');

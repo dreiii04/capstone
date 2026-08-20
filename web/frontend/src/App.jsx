@@ -20,7 +20,6 @@ import AddRegistrar from './pages/SuperAdmin/AddRegistrar';
 import RegistrarInformation from './pages/SuperAdmin/RegistrarInformation';
 import ActivityLogs from './pages/SuperAdmin/ActivityLogs';
 
-import ValidationLanding from './pages/Validation/Landing';
 import ValidationResults from './pages/Validation/Validation';
 
 import StudentManagement from './pages/Users/StudentManagement';
@@ -105,4 +104,3 @@ function App() {
 }
 
 export default App;
-

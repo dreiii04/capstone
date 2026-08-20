@@ -6,10 +6,22 @@ const { protect } = require('../middleware/authMiddleware');
 const { isEndUser } = require('../services/sessionService');
 const { ownerQuery } = require('../utils/ownership');
 
+function notificationScope(user) {
+  if (isEndUser(user)) return ownerQuery(user);
+  // Staff notifications are intentionally created without a recipient. Do not
+  // let registrar actions mutate student/alumni inboxes.
+  return {
+    $and: [
+      { $or: [{ userId: '' }, { userId: null }, { userId: { $exists: false } }] },
+      { $or: [{ email: '' }, { email: null }, { email: { $exists: false } }] },
+    ],
+  };
+}
+
 // Get all notifications
 router.get('/', protect, async (req, res) => {
   try {
-    const query = isEndUser(req.user) ? ownerQuery(req.user) : {};
+    const query = notificationScope(req.user);
     const limit = Math.min(Math.max(Number.parseInt(req.query.limit || '50', 10) || 50, 1), 200);
     const notifications = await Notification.find(query).sort({ date: -1 }).limit(limit);
     res.json(notifications);
@@ -22,7 +34,7 @@ router.get('/', protect, async (req, res) => {
 router.put('/mark-all-read', protect, async (req, res) => {
   try {
     await Notification.updateMany(
-      { isRead: false, ...(isEndUser(req.user) ? ownerQuery(req.user) : {}) },
+      { isRead: false, ...notificationScope(req.user) },
       { isRead: true }
     );
     res.json({ message: 'All notifications marked as read' });
@@ -35,7 +47,7 @@ router.put('/mark-all-read', protect, async (req, res) => {
 router.put('/:id/read', protect, async (req, res) => {
   try {
     const notification = await Notification.findOneAndUpdate(
-      { _id: req.params.id, ...(isEndUser(req.user) ? ownerQuery(req.user) : {}) },
+      { _id: req.params.id, ...notificationScope(req.user) },
       { isRead: true },
       { new: true }
     );
@@ -54,7 +66,7 @@ router.delete('/:id', protect, async (req, res) => {
     }
     const notification = await Notification.findOneAndDelete({
       _id: req.params.id,
-      ...(isEndUser(req.user) ? ownerQuery(req.user) : {}),
+      ...notificationScope(req.user),
     });
     if (!notification) {
       return res.status(404).json({ message: 'Notification not found' });

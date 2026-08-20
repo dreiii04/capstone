@@ -26,6 +26,20 @@ export function initializeMediaStorage() {
   });
 }
 
+export function buildAuthenticatedReceiptDeliveryUrl(uploadResult) {
+  const publicId = String(uploadResult?.public_id || '').trim();
+  if (!publicId) return '';
+
+  return cloudinary.url(publicId, {
+    resource_type: uploadResult?.resource_type || 'image',
+    type: 'authenticated',
+    secure: true,
+    sign_url: true,
+    ...(uploadResult?.version ? { version: uploadResult.version } : {}),
+    ...(uploadResult?.format ? { format: uploadResult.format } : {}),
+  });
+}
+
 function requireLocalMediaSupport() {
   if (config.isVercel) {
     throw new Error(
@@ -62,7 +76,20 @@ export async function uploadReceipt(file, imageMetadata) {
         use_filename: false,
         unique_filename: true,
       },
-      (error, result) => error ? reject(error) : resolve(result),
+      (error, result) => {
+        if (error) return reject(error);
+        try {
+          return resolve({
+            ...result,
+            // Authenticated Cloudinary assets reject their ordinary secure_url.
+            // Persist the signed delivery URL for the protected admin API while
+            // keeping the unsigned asset unavailable.
+            secure_url: buildAuthenticatedReceiptDeliveryUrl(result),
+          });
+        } catch (urlError) {
+          return reject(urlError);
+        }
+      },
     );
     stream.end(file.buffer);
   });

@@ -169,37 +169,6 @@ const AdminLogin = () => {
                         </div>
                     </form>
 
-                    {/* Account Hints - Restored */}
-                    <div className="mt-8 pt-5 border-t border-gray-300">
-                        <p className="text-[10px] text-gray-500 text-center mb-3 uppercase tracking-widest font-bold">Demo Accounts</p>
-                        
-                        <div className="flex gap-3">
-                            <div
-                                className="flex-1 bg-white border border-gray-300 rounded-lg p-3 cursor-pointer hover:border-blue-400 hover:shadow-md transition-all focus:outline-none focus:ring-2 focus:ring-blue-400"
-                                onClick={() => { setEmail('admin@verifitor.com'); setPassword('admin123'); }}
-                                role="button"
-                                tabIndex={0}
-                            >
-                                <p className="text-[11px] font-bold text-[#343a40] mb-1 flex items-center gap-1.5">
-                                    <i className="fa-solid fa-user-tie text-blue-500"></i> Registrar
-                                </p>
-                                <p className="text-[10px] text-[#6c757d] m-0 truncate">admin@verifitor.com</p>
-                            </div>
-
-                            <div
-                                className="flex-1 bg-white border border-gray-300 rounded-lg p-3 cursor-pointer hover:border-amber-400 hover:shadow-md transition-all focus:outline-none focus:ring-2 focus:ring-amber-400"
-                                onClick={() => { setEmail('sysadmin@verifitor.com'); setPassword('sysadmin123'); }}
-                                role="button"
-                                tabIndex={0}
-                            >
-                                <p className="text-[11px] font-bold text-[#343a40] mb-1 flex items-center gap-1.5">
-                                    <i className="fa-solid fa-shield-halved text-amber-500"></i> Super Admin
-                                </p>
-                                <p className="text-[10px] text-[#6c757d] m-0 truncate">sysadmin@verifitor.com</p>
-                            </div>
-                        </div>
-                    </div>
-
                 </div>
             </div>
         </div>
@@ -207,4 +176,3 @@ const AdminLogin = () => {
 };
 
 export default AdminLogin;
-

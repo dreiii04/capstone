@@ -62,7 +62,7 @@ const fileFilter = (req, file, cb) => {
 const upload = multer({
   storage,
   fileFilter,
-  limits: { fileSize: 10 * 1024 * 1024 }
+  limits: { fileSize: 4 * 1024 * 1024 }
 });
 
 // Get all transactions
@@ -266,13 +266,16 @@ router.post('/', protect, registrarOrSuperAdmin, async (req, res) => {
 router.put('/:id/verify', protect, registrarOrSuperAdmin, async (req, res) => {
   try {
     const { status, adminRemarks } = req.body;
-    const allowedStatuses = ['Completed', 'Needs Update', 'Rejected', 'Pending Verification', 'Refunded'];
+    const allowedStatuses = ['Completed', 'Needs Update', 'Rejected'];
     if (!allowedStatuses.includes(status)) {
-      return res.status(400).json({ message: 'Invalid status. Allowed: Completed, Needs Update, Rejected, Pending Verification, Refunded' });
+      return res.status(400).json({ message: 'Invalid verification decision.' });
     }
 
     const transaction = await Transaction.findOneAndUpdate(
-      { transactionId: req.params.id },
+      {
+        transactionId: req.params.id,
+        status: 'Pending Verification',
+      },
       {
         status,
         adminRemarks: adminRemarks || '',
@@ -282,26 +285,45 @@ router.put('/:id/verify', protect, registrarOrSuperAdmin, async (req, res) => {
       { new: true }
     );
 
-    if (!transaction) return res.status(404).json({ message: 'Transaction not found' });
+    if (!transaction) {
+      const exists = await Transaction.exists({ transactionId: req.params.id });
+      return res.status(exists ? 409 : 404).json({
+        message: exists
+          ? 'This payment has already been decided.'
+          : 'Transaction not found',
+      });
+    }
 
     const Notification = require('../models/Notification');
 
     // Sync to Request Collection
     if (status === 'Completed') {
       const updatedReq = await Request.findOneAndUpdate(
-        { requestId: transaction.requestId },
+        { requestId: transaction.requestId, status: 'Pending' },
         { status: 'In Process' },
         { new: true }
       );
-      
-      if (updatedReq) {
-        await Notification.create({
-          userId: updatedReq.userId || '',
-          message: `Your request #${updatedReq.requestId} for ${updatedReq.documentType} is now In Process!`,
-          isRead: false,
-          email: updatedReq.email || ''
+      if (!updatedReq) {
+        await Transaction.updateOne(
+          { _id: transaction._id, status: 'Completed' },
+          {
+            $set: {
+              status: 'Pending Verification',
+              verifiedBy: '',
+              verifiedAt: null,
+            },
+          },
+        );
+        return res.status(409).json({
+          message: 'The linked request is no longer awaiting payment.',
         });
       }
+      await Notification.create({
+        userId: updatedReq.userId || '',
+        message: `Your request #${updatedReq.requestId} for ${updatedReq.documentType} is now In Process!`,
+        isRead: false,
+        email: updatedReq.email || ''
+      });
     }
 
     // Bug 2 fix: Cascade payment rejection to linked Request
@@ -311,15 +333,27 @@ router.put('/:id/verify', protect, registrarOrSuperAdmin, async (req, res) => {
         { status: 'Rejected', rejectionReason: 'Payment Issue' },
         { new: true }
       );
-
-      if (updatedReq) {
-        await Notification.create({
-          userId: updatedReq.userId || '',
-          message: `Your request #${updatedReq.requestId} for ${updatedReq.documentType} was rejected. Reason: Payment Issue`,
-          isRead: false,
-          email: updatedReq.email || ''
+      if (!updatedReq) {
+        await Transaction.updateOne(
+          { _id: transaction._id, status: 'Rejected' },
+          {
+            $set: {
+              status: 'Pending Verification',
+              verifiedBy: '',
+              verifiedAt: null,
+            },
+          },
+        );
+        return res.status(409).json({
+          message: 'The linked request is no longer awaiting payment.',
         });
       }
+      await Notification.create({
+        userId: updatedReq.userId || '',
+        message: `Your request #${updatedReq.requestId} for ${updatedReq.documentType} was rejected. Reason: Payment Issue`,
+        isRead: false,
+        email: updatedReq.email || ''
+      });
     }
 
     // Log the verification activity
@@ -345,27 +379,34 @@ router.put('/:id/reupload', protect, upload.single('receiptImage'), async (req, 
     if (!req.file || !isSupportedImage(req.file.buffer)) {
       return res.status(400).json({ success: false, message: 'A valid PNG or JPEG receipt is required.' });
     }
-    const updateData = { status: 'Pending Verification', adminRemarks: '' };
-    if (req.file) {
-      const uploadResult = await uploadStream(req.file.buffer, 'receipts');
-      updateData.receiptImage = uploadResult.secure_url;
+    const transaction = await Transaction.findOne({
+      transactionId: req.params.id,
+      ...(isEndUser(req.user)
+        ? ownerQuery(req.user, { emailField: 'payerEmail' })
+        : {}),
+    });
+    if (!transaction) return res.status(404).json({ message: 'Transaction not found' });
+    if (transaction.status !== 'Needs Update') {
+      return res.status(409).json({
+        success: false,
+        message: 'A receipt can only be replaced after staff request an update.',
+      });
     }
 
-    const transaction = await Transaction.findOneAndUpdate(
-      {
-        transactionId: req.params.id,
-        ...(isEndUser(req.user)
-          ? ownerQuery(req.user, { emailField: 'payerEmail' })
-          : {}),
-      },
-      updateData,
-      { new: true }
-    );
-
-    if (!transaction) return res.status(404).json({ message: 'Transaction not found' });
+    const uploadResult = await uploadStream(req.file.buffer, 'receipts');
+    transaction.receiptImage = uploadResult.secure_url;
+    transaction.status = 'Pending Verification';
+    transaction.adminRemarks = '';
+    await transaction.save();
     res.json(transaction);
   } catch (error) {
-    res.status(500).json({ message: 'Error re-uploading receipt' });
+    const unavailable = error?.code === 'MEDIA_STORAGE_UNAVAILABLE';
+    res.status(unavailable ? 503 : 500).json({
+      success: false,
+      message: unavailable
+        ? 'Receipt storage is temporarily unavailable. Please try again later.'
+        : 'Error re-uploading receipt',
+    });
   }
 });
 
@@ -390,16 +431,27 @@ router.post('/refund-request', protect, async (req, res) => {
       return res.status(404).json({ success: false, message: 'Transaction not found' });
     }
 
-    // Prevent duplicate refund requests for the same transaction
-    const existingRefund = await Refund.findOne({ transactionId, status: 'Pending' });
-    if (existingRefund) {
-      return res.status(400).json({ success: false, message: 'A pending refund request already exists for this transaction' });
+    const linkedRequest = await Request.findOne({ requestId: transaction.requestId });
+    if (transaction.status !== 'Completed' || linkedRequest?.status !== 'Rejected') {
+      return res.status(409).json({
+        success: false,
+        message: 'Only a paid request that was later rejected is eligible for a refund.',
+      });
     }
 
-    const count = await Refund.countDocuments();
-    const refundId = `RFD-${Date.now().toString(36).toUpperCase()}-${(count + 1).toString().padStart(4, '0')}`;
+    // A decision is final for a payment. Rejected refund requests must be
+    // corrected by staff rather than duplicated under a new identifier.
+    const existingRefund = await Refund.findOne({ transactionId });
+    if (existingRefund) {
+      return res.status(409).json({
+        success: false,
+        message: 'A refund request already exists for this transaction',
+      });
+    }
 
-    const linkedRequest = await Request.findOne({ requestId: transaction.requestId });
+    const refundId =
+      `RFD-${Date.now().toString(36).toUpperCase()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+
     const refundAmount = resolveTransactionAmount(
       transaction.toObject(),
       linkedRequest?.toObject() || {},
@@ -419,7 +471,8 @@ router.post('/refund-request', protect, async (req, res) => {
     // Notify registrar staff about the refund request
     const Notification = require('../models/Notification');
     await Notification.create({
-      userId: refund.userId || '',
+      userId: '',
+      email: '',
       message: `New refund request (${refundId}) from ${refund.studentName} for ₱${refund.amount} — Reason: ${reason === 'Other' ? otherReason : reason}`,
       isRead: false
     });
@@ -444,8 +497,11 @@ router.put('/refunds/:id/process', protect, registrarOrSuperAdmin, async (req, r
       query = { $or: [{ refundId: req.params.id }, { _id: req.params.id }] };
     }
 
+    const permittedPreviousStatuses = status === 'Pending'
+      ? ['Rejected', 'rejected']
+      : ['Pending', 'pending'];
     const refund = await Refund.findOneAndUpdate(
-      query,
+      { $and: [query, { status: { $in: permittedPreviousStatuses } }] },
       {
         status,
         adminRemarks: adminRemarks || '',
@@ -455,7 +511,14 @@ router.put('/refunds/:id/process', protect, registrarOrSuperAdmin, async (req, r
       { new: true }
     );
 
-    if (!refund) return res.status(404).json({ message: 'Refund request not found' });
+    if (!refund) {
+      const exists = await Refund.exists(query);
+      return res.status(exists ? 409 : 404).json({
+        message: exists
+          ? 'This refund has already been processed and cannot make that transition.'
+          : 'Refund request not found',
+      });
+    }
 
     // If approved, mark the original transaction as Refunded
     if (status === 'Approved') {
@@ -474,7 +537,9 @@ router.put('/refunds/:id/process', protect, registrarOrSuperAdmin, async (req, r
     const Notification = require('../models/Notification');
     const statusMessage = status === 'Approved'
       ? `Your refund request for ₱${refund.amount} has been approved!`
-      : `Your refund request was rejected. ${adminRemarks ? 'Reason: ' + adminRemarks : ''}`;
+      : status === 'Rejected'
+        ? `Your refund request was rejected. ${adminRemarks ? 'Reason: ' + adminRemarks : ''}`
+        : 'Your refund request was reopened for staff review.';
 
     await Notification.create({
       message: statusMessage,

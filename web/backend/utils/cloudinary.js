@@ -18,7 +18,20 @@ function hasCloudinaryConfig() {
   return Boolean(config.cloud_name && config.api_key && config.api_secret);
 }
 
-const uploadStream = (buffer, folder) => {
+function buildAuthenticatedDeliveryUrl(uploadResult) {
+  const publicId = String(uploadResult?.public_id || '').trim();
+  if (!publicId) return '';
+  return cloudinary.url(publicId, {
+    resource_type: uploadResult?.resource_type || 'image',
+    type: 'authenticated',
+    secure: true,
+    sign_url: true,
+    ...(uploadResult?.version ? { version: uploadResult.version } : {}),
+    ...(uploadResult?.format ? { format: uploadResult.format } : {}),
+  });
+}
+
+const uploadStream = (buffer, folder, { authenticated = folder === 'receipts' } = {}) => {
   if (!hasCloudinaryConfig()) {
     const error = new Error('Receipt media storage is not configured.');
     error.code = 'MEDIA_STORAGE_UNAVAILABLE';
@@ -26,10 +39,15 @@ const uploadStream = (buffer, folder) => {
   }
   return new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
-      { folder },
+      {
+        folder,
+        ...(authenticated ? { type: 'authenticated' } : {}),
+      },
       (error, result) => {
         if (result) {
-          resolve(result);
+          resolve(authenticated
+            ? { ...result, secure_url: buildAuthenticatedDeliveryUrl(result) }
+            : result);
         } else {
           reject(error);
         }
@@ -39,4 +57,9 @@ const uploadStream = (buffer, folder) => {
   });
 };
 
-module.exports = { cloudinary, hasCloudinaryConfig, uploadStream };
+module.exports = {
+  buildAuthenticatedDeliveryUrl,
+  cloudinary,
+  hasCloudinaryConfig,
+  uploadStream,
+};

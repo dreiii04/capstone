@@ -861,10 +861,8 @@ function requestMatchesTransaction(request, transaction) {
     request.request_id,
     request.linkedRequestId,
   ].map((value) => firstNonEmptyString(value)).filter(Boolean);
-  if (transactionRequestId || requestIdentifiers.length > 0) {
-    return Boolean(
-      transactionRequestId && requestIdentifiers.includes(transactionRequestId),
-    );
+  if (transactionRequestId) {
+    return requestIdentifiers.includes(transactionRequestId);
   }
 
   const transactionDocName = firstNonEmptyString(
@@ -1648,8 +1646,28 @@ async function createRefundRecord(record, transaction) {
 class PaymentSubmissionConflictError extends Error {}
 
 function isAwaitingPayment(record) {
-  return normalizeWorkflowStatus(record?.mobileStatus) === 'pending_payment' &&
-    !isTerminalWorkflowStatus(resolveWorkflowStatus(record));
+  if (!record || firstNonEmptyString(record.paymentReceiptId)) return false;
+
+  const pendingPaymentStatuses = new Set([
+    'pending',
+    'pending_payment',
+    'pending_for_payment',
+    'awaiting_payment',
+  ]);
+  const canonicalStatuses = [
+    record.status,
+    record.state,
+    record.requestStatus,
+  ].map(normalizeWorkflowStatus).filter(Boolean);
+  const mobileStatus = normalizeWorkflowStatus(record.mobileStatus);
+  const allStatuses = [...canonicalStatuses, mobileStatus].filter(Boolean);
+
+  if (allStatuses.length === 0 ||
+      allStatuses.some((status) => !pendingPaymentStatuses.has(status))) {
+    return false;
+  }
+
+  return allStatuses.some((status) => pendingPaymentStatuses.has(status));
 }
 
 async function commitPaymentReceipt({ user, linkedRequest, receipt }) {
@@ -1678,7 +1696,6 @@ async function commitPaymentReceipt({ user, linkedRequest, receipt }) {
             $and: [
               { _id: linkedRequest._id },
               { $or: ownerClauses },
-              { mobileStatus: 'pending_payment' },
               ...observedRevision,
               {
                 $or: [
@@ -1749,8 +1766,39 @@ function buildRequestResponse(record) {
   const { documentPrice, processingFee, totalAmount } =
     resolveDocumentPricing({ ...record, docName });
   const requestId = getRequestResponseId(record);
+  const canonicalStatus = firstNonEmptyString(
+    record.status,
+    record.state,
+    record.requestStatus,
+  );
+  const mobileStatus = firstNonEmptyString(record.mobileStatus);
+  const canonicalNormalized = normalizeWorkflowStatus(canonicalStatus);
+  const mobileNormalized = normalizeWorkflowStatus(mobileStatus);
+  const specializedPendingStatuses = new Set([
+    'pending',
+    'pending_payment',
+    'pending_for_payment',
+    'awaiting_payment',
+    'pending_completion',
+    'pending_to_complete',
+    'pending_verification',
+  ]);
+  const terminalStatus = [
+    record.status,
+    record.state,
+    record.requestStatus,
+    record.mobileStatus,
+  ].find((candidate) =>
+    isRejectedWorkflowStatus(candidate) || isTerminalWorkflowStatus(candidate));
   const status = firstNonEmptyString(
-    resolveWorkflowStatus(record, { preferMobile: true }),
+    terminalStatus
+      ? terminalStatus
+      : canonicalNormalized && canonicalNormalized !== 'pending'
+        ? canonicalStatus
+        : specializedPendingStatuses.has(mobileNormalized)
+          ? mobileStatus
+          : canonicalStatus,
+    mobileStatus,
     'pending',
   );
   const remarks = getRecordRemarks(record);
@@ -2231,7 +2279,7 @@ function validateProfilePayload(body) {
     return { error: 'Select a valid academic year.' };
   }
 
-  if (program.length < 2 || program.length > 100) {
+  if (program && (program.length < 2 || program.length > 100)) {
     return { error: 'Select a valid program.' };
   }
 
@@ -2356,7 +2404,7 @@ app.post(
         trueRequestId, // Pass the real requestId
         amount,
         status: 'pending',
-        imageUrl: '',
+        imageUrl: uploadResult?.secure_url || '',
         publicId: uploadResult?.public_id || '',
         originalName: imageMetadata.originalName,
         mimeType: imageMetadata.mimeType,
@@ -2867,9 +2915,9 @@ app.post('/refunds', requireAuth, writeLimiter, async (req, res, next) => {
 
     const createdAt = new Date().toISOString();
     const canonicalTransactionId = firstNonEmptyString(
+      transaction.transactionId,
       transaction._id,
       transaction.id,
-      transaction.transactionId,
       transactionId,
     );
     const linkedRequestId = firstNonEmptyString(
@@ -3058,6 +3106,8 @@ app.put('/profile', requireAuth, writeLimiter, async (req, res, next) => {
 
     const role = normalizeRole(user.role);
     const isStudent = role === 'student';
+    const educationalLevel = normalizeEducationalLevel(user.educationalLevel);
+    const permitsBlankProgram = new Set(['jhs', 'shs']).has(educationalLevel);
     const submittedEmail = normalizeEmail(
       isStudent ? parsed.schoolEmail : parsed.personalEmail,
     );
@@ -3086,6 +3136,12 @@ app.put('/profile', requireAuth, writeLimiter, async (req, res, next) => {
         });
       }
 
+    }
+    if (!permitsBlankProgram && parsed.program.length < 2) {
+      return res.status(400).json({
+        success: false,
+        message: 'Select a valid program.',
+      });
     }
 
     const updates = {
@@ -3750,14 +3806,28 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 let cleanupTimer;
+let backendInitializationPromise;
+let backendInitialized = false;
 
-export async function initializeBackend() {
-  if (!cleanupTimer) {
-    cleanupTimer = setInterval(cleanupOtpData, 60 * 1000);
-    cleanupTimer.unref?.();
-  }
+export function initializeBackend() {
+  backendInitializationPromise ||= (async () => {
+    if (!cleanupTimer) {
+      cleanupTimer = setInterval(cleanupOtpData, 60 * 1000);
+      cleanupTimer.unref?.();
+    }
 
-  await initializeDatabase();
+    await initializeDatabase();
+    backendInitialized = true;
+  })().catch((error) => {
+    backendInitializationPromise = undefined;
+    backendInitialized = false;
+    throw error;
+  });
+  return backendInitializationPromise;
+}
+
+export function isBackendInitialized() {
+  return backendInitialized;
 }
 
 export default function handler(req, res) {

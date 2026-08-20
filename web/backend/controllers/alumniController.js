@@ -1,6 +1,7 @@
 const Alumni = require('../models/Users/Alumni');
 const mongoose = require('mongoose');
 const { HttpStatus } = require('../config/constants');
+const { findUserByEmail } = require('../services/sessionService');
 
 const AlumniController = {
     // Get all alumni
@@ -35,8 +36,7 @@ const AlumniController = {
                 });
             }
 
-            const existingAlumni = await Alumni.findOne({ email });
-            if (existingAlumni) {
+            if (await findUserByEmail(email)) {
                 return res.status(HttpStatus.BAD_REQUEST).json({ 
                     success: false, 
                     message: 'A user with this email already exists',

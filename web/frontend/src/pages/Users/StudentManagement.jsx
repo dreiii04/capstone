@@ -17,7 +17,7 @@ const StudentManagement = () => {
     const [filterStatus, setFilterStatus] = useState('All');
     
     // Pagination
-    const [entriesPerPage, setEntriesPerPage] = useState(10);
+    const [entriesPerPage] = useState(10);
     const [currentPage, setCurrentPage] = useState(1);
     const [isFilterDrawerOpen, setIsFilterDrawerOpen] = useState(false);
     const [sortConfig, setSortConfig] = useState({ key: 'createdAt', direction: 'desc' });

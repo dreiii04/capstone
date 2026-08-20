@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import Layout from '../../components/Layout';
-import { Plus, Eye, CheckCircle } from 'lucide-react';
+import { Eye, CheckCircle } from 'lucide-react';
 
 function Blockchain() {
     const navigate = useNavigate();

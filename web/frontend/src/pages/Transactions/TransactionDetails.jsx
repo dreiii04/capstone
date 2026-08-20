@@ -68,7 +68,7 @@ const TransactionDetails = () => {
                     const res = await api.get(`/transactions/${id}`);
                     setTxData(res.data);
                     setIsEditingStatus(false);
-                } catch (err) {
+                } catch {
                     showFeedback({
                         title: 'Update Failed',
                         message: 'We hit a snag updating this transaction\'s status. Please check your connection and try again.',
@@ -423,7 +423,7 @@ const TransactionDetails = () => {
                                                         message: 'The receipt has been successfully re-uploaded. The status is now set to Pending Verification.',
                                                         type: 'success'
                                                     });
-                                                } catch (err) {
+                                                } catch {
                                                     showFeedback({
                                                         title: 'Upload Failed',
                                                         message: 'We couldn\'t upload the new receipt. Please try again.',

@@ -42,6 +42,14 @@ test('valid two-letter names are accepted consistently with the mobile form', as
   assert.equal(response.status, 200);
 });
 
+test('names accept real curly apostrophes without accepting mojibake bytes', async () => {
+  const valid = await updateProfile({ firstName: 'D’Arcy' });
+  assert.equal(valid.status, 200);
+
+  const invalid = await updateProfile({ firstName: 'Dâ€™Arcy' });
+  assert.equal(invalid.status, 400);
+});
+
 test('profile validation returns an actionable message', async () => {
   const response = await updateProfile({ firstName: '1' });
   assert.equal(response.status, 400);

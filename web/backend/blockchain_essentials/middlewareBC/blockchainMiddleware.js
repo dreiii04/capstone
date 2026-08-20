@@ -8,7 +8,7 @@ const getContract = () => {
   }
 
   return new ethers.Contract(
-    process.env.CONTRACT_ADDRESS,
+    process.env.TRANSACTION_LEDGER_CONTRACT_ADDRESS,
     contractJson.abi,
     wallet
   );
@@ -48,19 +48,20 @@ const recordTransactionOnBlockchain = async ({
 
     const receipt = await tx.wait();
 
-    return {
+    const result = {
       transactionHash: receipt.hash,
       blockNumber: receipt.blockNumber,
       status: receipt.status === 1 ? "Recorded" : "Failed",
     };
+    if (result.status !== 'Recorded') {
+      throw new Error('Blockchain transaction was not confirmed.');
+    }
+    return result;
   } catch (error) {
     console.warn(`[Blockchain] Recording failed: ${error.message}`);
-    return {
-      transactionHash: "",
-      blockNumber: null,
-      status: "Failed",
-      error: error.message,
-    };
+    const unavailable = new Error('Blockchain recording is unavailable.');
+    unavailable.code = 'BLOCKCHAIN_RECORDING_FAILED';
+    throw unavailable;
   }
 };
 
@@ -103,7 +104,7 @@ const verifyTransactionOnBlockchain = async (referenceNumber) => {
     if (isDecodeMismatch) {
       return buildUnavailableVerificationResult(
         referenceNumber,
-        `Configured blockchain contract at ${process.env.CONTRACT_ADDRESS} does not return TransactionLedger data. Check CONTRACT_ADDRESS and redeploy the ledger contract.`
+        `Configured blockchain contract at ${process.env.TRANSACTION_LEDGER_CONTRACT_ADDRESS} does not return TransactionLedger data. Check TRANSACTION_LEDGER_CONTRACT_ADDRESS and redeploy the ledger contract.`
       );
     }
 

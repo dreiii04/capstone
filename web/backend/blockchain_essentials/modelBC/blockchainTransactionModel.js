@@ -11,6 +11,16 @@ const blockchainTransactionSchema = new mongoose.Schema(
       type: String, 
       default: '' 
     },
+    requestId: {
+      type: String,
+      default: '',
+      index: true,
+    },
+    documentHash: {
+      type: String,
+      default: '',
+      index: true,
+    },
     referenceNumber: {
       type: String,
       required: true,

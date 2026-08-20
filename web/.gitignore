@@ -7,8 +7,9 @@ build/
 .DS_Store
 .claude/
 
-# Config files
-*.config.js
+# Local-only configuration. Build configuration such as vite.config.js,
+# eslint.config.js, postcss.config.js, and tailwind.config.js must remain
+# versioned so clean checkouts and Vercel builds behave like local builds.
 config.json
 settings.json
 .env.local

@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Layout from '../../components/Layout';
 import ConfirmModal from '../../components/ConfirmModal';
 import api from '../../api';
-import { User, ShieldCheck, Save, X, Camera, CheckCircle, AlertCircle, Eye, EyeOff } from 'lucide-react';
+import { X, CheckCircle, AlertCircle, Eye, EyeOff } from 'lucide-react';
 
 const Profile = () => {
     const navigate = useNavigate();

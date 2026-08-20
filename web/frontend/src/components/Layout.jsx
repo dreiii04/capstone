@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import Breadcrumb from './Breadcrumb';
 import verifitorLogo from '../assets/verifitor_logo.png';
 import verifitorIcon from '../assets/logo-verifitor.png';
-import api from '../api';
+import api, { resolveApiAssetUrl } from '../api';
 
 const getInitials = (name) => {
     if (!name) return 'U';
@@ -295,7 +295,7 @@ const Layout = ({ children }) => {
                                 aria-haspopup="true"
                             >
                                 {adminUser.profilePic ? (
-                                    <img src={adminUser.profilePic.startsWith('http') ? adminUser.profilePic : `http://localhost:5000${adminUser.profilePic}`} alt="Profile" className="w-full h-full object-cover" />
+                                    <img src={resolveApiAssetUrl(adminUser.profilePic)} alt="Profile" className="w-full h-full object-cover" />
                                 ) : (
                                     <span className="text-[16px] font-bold text-[#547794] tracking-wide">{getInitials(adminUser.name || 'Registrar Name')}</span>
                                 )}

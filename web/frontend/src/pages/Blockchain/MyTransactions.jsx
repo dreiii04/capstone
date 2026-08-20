@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useCallback, useEffect, useState, useMemo } from "react";
 import Layout from "../../components/Layout";
 import { useNavigate } from "react-router-dom";
 import API from "../../components/config/axiosConfig";
@@ -18,12 +18,12 @@ function MyTransactions() {
     const [entriesPerPage, setEntriesPerPage] = useState(10);
     const [currentPage, setCurrentPage] = useState(1);
 
-    const triggerToast = (message, type = "info") => {
+    const triggerToast = useCallback((message, type = "info") => {
         setToast({ show: true, message, type });
         setTimeout(() => setToast({ show: false, message: "", type: "info" }), 4000);
-    };
+    }, []);
 
-    const fetchTransactions = async (isRefresh = false) => {
+    const fetchTransactions = useCallback(async (isRefresh = false) => {
         try {
             if (isRefresh) setRefreshing(true);
             else setLoading(true);
@@ -41,11 +41,11 @@ function MyTransactions() {
             setLoading(false);
             setRefreshing(false);
         }
-    };
+    }, [triggerToast]);
 
     useEffect(() => {
         fetchTransactions();
-    }, []);
+    }, [fetchTransactions]);
 
     const getStatusStyle = (status) => {
         switch (status?.toLowerCase()) {

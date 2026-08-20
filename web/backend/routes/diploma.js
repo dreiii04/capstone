@@ -4,25 +4,21 @@ const multer = require('multer');
 const csv = require('csv-parser');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
+const { Readable } = require('stream');
 const PDFDocument = require('pdfkit');
 const qrcode = require('qrcode');
 const Diploma = require('../models/Diploma');
 const ActivityLog = require('../models/ActivityLog');
+const blockchainService = require('../services/blockchainService');
 const { protect, superAdminOnly, registrarOrSuperAdmin } = require('../middleware/authMiddleware');
+const {
+    decodePdf,
+    encodePdf,
+    storedPdfMarker,
+} = require('../utils/storedPdf');
 
-// Configure multer for CSV uploads
-const csvStorage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        const uploadDir = path.join(__dirname, '..', 'uploads', 'diploma');
-        if (!fs.existsSync(uploadDir)) {
-            fs.mkdirSync(uploadDir, { recursive: true });
-        }
-        cb(null, uploadDir);
-    },
-    filename: (req, file, cb) => {
-        cb(null, `csv-${Date.now()}-${file.originalname}`);
-    }
-});
+const csvStorage = multer.memoryStorage();
 
 const uploadCSV = multer({
     storage: csvStorage,
@@ -33,7 +29,7 @@ const uploadCSV = multer({
             cb(new Error('Only CSV files are allowed'), false);
         }
     },
-    limits: { fileSize: 5 * 1024 * 1024 }
+    limits: { fileSize: 4 * 1024 * 1024 }
 });
 
 // @route   POST /api/diploma/upload-csv
@@ -46,7 +42,7 @@ router.post('/upload-csv', protect, registrarOrSuperAdmin, uploadCSV.single('csv
         const diplomas = [];
 
         await new Promise((resolve, reject) => {
-            fs.createReadStream(req.file.path)
+            Readable.from([req.file.buffer])
                 .pipe(csv())
                 .on('data', (row) => {
                     diplomas.push({
@@ -60,8 +56,6 @@ router.post('/upload-csv', protect, registrarOrSuperAdmin, uploadCSV.single('csv
                 .on('end', resolve)
                 .on('error', reject);
         });
-
-        fs.unlinkSync(req.file.path);
 
         if (diplomas.length === 0) {
             return res.status(400).json({ message: 'CSV contains no records' });
@@ -161,19 +155,32 @@ router.post('/:id/generate', protect, registrarOrSuperAdmin, async (req, res) =>
     try {
         const diploma = await Diploma.findOne({ diplomaId: req.params.id });
         if (!diploma) return res.status(404).json({ message: 'Diploma not found' });
-
-        const pdfDir = path.join(__dirname, '..', 'uploads', 'diploma');
-        if (!fs.existsSync(pdfDir)) {
-            fs.mkdirSync(pdfDir, { recursive: true });
+        if (diploma.status === 'Released') {
+            return res.status(409).json({ message: 'A released diploma is immutable.' });
         }
+
         const pdfFilename = `${diploma.diplomaId}-${diploma.studentId}.pdf`;
-        const pdfPath = path.join(pdfDir, pdfFilename);
 
         const frontendUrl = process.env.FRONTEND_URL || req.get('origin') || 'http://localhost:5173';
-        await generateDiplomaPdf(diploma, pdfPath, frontendUrl);
+        const pdfBuffer = await generateDiplomaPdf(diploma, frontendUrl);
+        const documentHash = crypto.createHash('sha256').update(pdfBuffer).digest('hex');
+        const blockchainReceipt = await blockchainService.anchorDocumentHash(
+            diploma.diplomaId,
+            diploma.studentId,
+            diploma.studentName,
+            documentHash,
+        );
+        if (!blockchainReceipt?.success) {
+            return res.status(502).json({ message: 'Blockchain recording failed.' });
+        }
 
-        diploma.pdfPath = pdfFilename;
-        diploma.status = 'Finalized';
+        diploma.pdfPath = storedPdfMarker(pdfFilename);
+        diploma.pdfData = encodePdf(pdfBuffer);
+        diploma.documentHash = documentHash;
+        diploma.blockchainStatus = 'Recorded';
+        diploma.blockchainTxHash = blockchainReceipt.txID;
+        diploma.blockchainBlockNumber = blockchainReceipt.blockNumber;
+        diploma.status = 'Released';
         await diploma.save();
 
         await ActivityLog.create({
@@ -185,26 +192,39 @@ router.post('/:id/generate', protect, registrarOrSuperAdmin, async (req, res) =>
             details: `Generated Diploma PDF for ${diploma.studentName} (${diploma.studentId})`
         });
 
-        res.json({ message: 'Diploma generated successfully', diploma });
+        res.json({ message: 'Diploma generated and recorded successfully', diploma });
     } catch (error) {
         console.error('Error generating Diploma:', error);
-        res.status(500).json({ message: 'Error generating Diploma' });
+        res.status(error?.code === 'BLOCKCHAIN_UNAVAILABLE' ? 503 : 500).json({
+            message: error?.code === 'BLOCKCHAIN_UNAVAILABLE'
+                ? 'Blockchain is unavailable. The diploma was not released.'
+                : 'Error generating Diploma'
+        });
     }
 });
 
 // @route   GET /api/diploma/:id/download
 router.get('/:id/download', protect, registrarOrSuperAdmin, async (req, res) => {
     try {
-        const diploma = await Diploma.findOne({ diplomaId: req.params.id });
+        const diploma = await Diploma.findOne({ diplomaId: req.params.id })
+            .select('+pdfData');
         if (!diploma) return res.status(404).json({ message: 'Diploma not found' });
         if (!diploma.pdfPath) return res.status(400).json({ message: 'Diploma PDF has not been generated yet' });
 
+        const pdfBuffer = decodePdf(diploma.pdfData) || decodePdf(diploma.pdfPath);
+        if (pdfBuffer) {
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader(
+                'Content-Disposition',
+                `attachment; filename="Diploma-${diploma.studentName}-${diploma.studentId}.pdf"`,
+            );
+            return res.send(pdfBuffer);
+        }
         const pdfFullPath = path.join(__dirname, '..', 'uploads', 'diploma', diploma.pdfPath);
         if (!fs.existsSync(pdfFullPath)) {
             return res.status(404).json({ message: 'PDF file not found on server' });
         }
-
-        res.download(pdfFullPath, `Diploma-${diploma.studentName}-${diploma.studentId}.pdf`);
+        return res.download(pdfFullPath, `Diploma-${diploma.studentName}-${diploma.studentId}.pdf`);
     } catch (error) {
         res.status(500).json({ message: 'Error downloading Diploma PDF' });
     }
@@ -216,7 +236,7 @@ router.delete('/:id', protect, superAdminOnly, async (req, res) => {
         const diploma = await Diploma.findOne({ diplomaId: req.params.id });
         if (!diploma) return res.status(404).json({ message: 'Diploma not found' });
 
-        if (diploma.pdfPath) {
+        if (diploma.pdfPath && !diploma.pdfPath.startsWith('stored:')) {
             const pdfFullPath = path.join(__dirname, '..', 'uploads', 'diploma', diploma.pdfPath);
             if (fs.existsSync(pdfFullPath)) {
                 fs.unlinkSync(pdfFullPath);
@@ -243,7 +263,7 @@ router.delete('/:id', protect, superAdminOnly, async (req, res) => {
 // ============================================================
 // PDF Generation Helper
 // ============================================================
-async function generateDiplomaPdf(diploma, outputPath, frontendUrl) {
+async function generateDiplomaPdf(diploma, frontendUrl) {
     const qrUrl = `${frontendUrl}/verify/results?hash=${diploma.diplomaId}`;
     const qrDataUri = await qrcode.toDataURL(qrUrl, { width: 100, margin: 1 });
 
@@ -253,8 +273,10 @@ async function generateDiplomaPdf(diploma, outputPath, frontendUrl) {
             layout: 'landscape',
             margins: { top: 50, bottom: 50, left: 60, right: 60 }
         });
-        const stream = fs.createWriteStream(outputPath);
-        doc.pipe(stream);
+        const chunks = [];
+        doc.on('data', (chunk) => chunks.push(chunk));
+        doc.on('end', () => resolve(Buffer.concat(chunks)));
+        doc.on('error', reject);
 
         const pageWidth = doc.page.width;
         const pageHeight = doc.page.height;
@@ -311,8 +333,6 @@ async function generateDiplomaPdf(diploma, outputPath, frontendUrl) {
         doc.fontSize(8).fillColor('#999999').font('Helvetica').text(`ID: ${diploma.diplomaId}`, 0, bottomY + 55, { align: 'center' });
 
         doc.end();
-        stream.on('finish', resolve);
-        stream.on('error', reject);
     });
 }
 

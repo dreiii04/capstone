@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
+const { protectPrivateUserFields } = require('../../utils/privateUserFields');
 
 const alumniSchema = new mongoose.Schema({
   firstName: {
@@ -78,5 +79,7 @@ alumniSchema.pre('save', async function() {
 alumniSchema.methods.comparePassword = async function(candidatePassword) {
   return bcrypt.compare(candidatePassword, this.password);
 };
+
+protectPrivateUserFields(alumniSchema);
 
 module.exports = mongoose.model('Alumni', alumniSchema, 'alumni');

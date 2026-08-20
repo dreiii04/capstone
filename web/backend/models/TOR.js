@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { applyStoredPdfProtection } = require('../utils/storedPdf');
 
 const gradeEntrySchema = new mongoose.Schema({
   academicYear: {
@@ -67,10 +68,35 @@ const torSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
+  pdfData: {
+    type: String,
+    default: '',
+    select: false
+  },
+  documentHash: {
+    type: String,
+    default: '',
+    index: true
+  },
+  blockchainStatus: {
+    type: String,
+    enum: ['', 'Recorded', 'Failed'],
+    default: ''
+  },
+  blockchainTxHash: {
+    type: String,
+    default: ''
+  },
+  blockchainBlockNumber: {
+    type: Number,
+    default: null
+  },
   generatedBy: {
     type: String,
     default: ''
   }
 }, { timestamps: true });
+
+applyStoredPdfProtection(torSchema);
 
 module.exports = mongoose.model('TOR', torSchema);

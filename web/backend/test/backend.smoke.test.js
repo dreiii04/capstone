@@ -3,6 +3,7 @@ const { after, before, test } = require('node:test');
 
 process.env.NODE_ENV = 'production';
 process.env.JWT_SECRET = 'test-only-secret-that-is-long-enough-for-hs256';
+process.env.ALLOWED_ORIGINS = 'https://cp-three-lemon.vercel.app/';
 delete process.env.MONGODB_URI;
 
 const app = require('../server');
@@ -43,4 +44,33 @@ test('CORS does not reflect an unapproved browser origin', async () => {
     headers: { Origin: 'https://attacker.example' },
   });
   assert.equal(response.headers.get('access-control-allow-origin'), null);
+});
+
+test('CORS accepts an approved origin even when configuration has a trailing slash', async () => {
+  const response = await fetch(`${baseUrl}/api/health`, {
+    method: 'OPTIONS',
+    headers: {
+      Origin: 'https://cp-three-lemon.vercel.app',
+      'Access-Control-Request-Method': 'GET',
+      'Access-Control-Request-Headers': 'authorization,content-type',
+    },
+  });
+  assert.equal(response.status, 204);
+  assert.equal(
+    response.headers.get('access-control-allow-origin'),
+    'https://cp-three-lemon.vercel.app',
+  );
+  assert.match(
+    response.headers.get('access-control-allow-headers') || '',
+    /Authorization/i,
+  );
+});
+
+test('root endpoint identifies the deployed API', async () => {
+  const response = await fetch(baseUrl);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    name: 'VeriFitor Web API',
+    health: '/api/health',
+  });
 });

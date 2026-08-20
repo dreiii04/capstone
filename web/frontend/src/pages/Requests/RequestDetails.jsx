@@ -1,12 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ChevronRight, FileText, Upload, CheckCircle2, AlertCircle, ShieldCheck, Printer, FileSearch, Trash2, Shield, Search } from 'lucide-react';
+import { ChevronRight, FileText, Upload, CheckCircle2, AlertCircle, ShieldCheck, Trash2, Shield, Search } from 'lucide-react';
 import Layout from '../../components/Layout';
 import ConfirmModal from '../../components/ConfirmModal';
 import FeedbackModal from '../../components/FeedbackModal';
-import api from '../../api';
+import api, { resolveApiAssetUrl } from '../../api';
 
-const API_BASE = (import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace('/api', '') : '') || 'http://127.0.0.1:5000';
+const isBlockchainDocument = (value) => {
+    const type = String(value || '').toLowerCase();
+    return type.includes('transcript') || type.includes('tor') || type.includes('diploma');
+};
 
 const RequestDetails = () => {
     const { id } = useParams();
@@ -33,14 +36,6 @@ const RequestDetails = () => {
     const [confirmConfig, setConfirmConfig] = useState(null);
 
     // Blockchain Data State
-    const [blockchainData, setBlockchainData] = useState({
-        ownerType: "Student",
-        course: "",
-        yearLevel: "",
-        studentIDNumber: "",
-        nameOfSchool: "VeriFitor University",
-        yearGraduated: new Date().getFullYear(),
-    });
     const [blockchainResult, setBlockchainResult] = useState(null);
 
     // Bug 4: Double-click guard using a ref-like flag
@@ -75,7 +70,7 @@ const RequestDetails = () => {
         setFeedbackConfig({ title, message, type });
     };
 
-    const fetchData = async () => {
+    const fetchData = useCallback(async () => {
         try {
             const res = await api.get('/requests');
             const found = res.data.find(r => r.requestId === id);
@@ -86,8 +81,9 @@ const RequestDetails = () => {
             if (foundTx) setPaymentTx(foundTx);
 
             // Determine Step
-            const docType = (found?.documentType || found?.document_type || '').toLowerCase();
-            const isBlockchain = docType.includes('tor') || docType.includes('diploma');
+            const isBlockchain = isBlockchainDocument(
+                found?.documentType || found?.document_type,
+            );
 
             if (found && found.status === 'Released') {
                 setCurrentStep(isBlockchain ? 4 : 3);
@@ -112,11 +108,11 @@ const RequestDetails = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [id]);
 
     useEffect(() => {
         fetchData();
-    }, [id]);
+    }, [fetchData]);
 
     const handleStatusUpdate = async (newStatus) => {
         setActionLoading(true);
@@ -128,7 +124,7 @@ const RequestDetails = () => {
             await api.put(`/requests/${id}`, updatePayload);
             await fetchData();
             if (newStatus === 'Rejected') setShowRejectForm(false);
-        } catch (err) {
+        } catch {
             showFeedback({
                 title: 'Update Failed',
                 message: 'Oops! We couldn\'t update the status of this request right now. Please try again.',
@@ -205,35 +201,62 @@ const RequestDetails = () => {
         }
     };
 
+    const downloadCompletedDocument = async () => {
+        if (!requestData?.documentFile) return;
+        setActionLoading(true);
+        try {
+            const response = await api.get(
+                resolveApiAssetUrl(requestData.documentFile),
+                { responseType: 'blob' },
+            );
+            const objectUrl = URL.createObjectURL(response.data);
+            const link = document.createElement('a');
+            link.href = objectUrl;
+            link.download = `document-${requestData.requestId}.pdf`;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+        } catch {
+            showFeedback({
+                title: 'Download Failed',
+                message: 'The protected document could not be downloaded. Please try again.',
+                type: 'error',
+            });
+        } finally {
+            setActionLoading(false);
+        }
+    };
+
     const handleSecureDocument = async () => {
         setActionLoading(true);
-        const isBlockchainEligible = documentData?.isBlockchainEligible || (requestData.documentType || requestData.document_type || '').toLowerCase().includes('tor') || (requestData.documentType || requestData.document_type || '').toLowerCase().includes('diploma');
+        const isBlockchainEligible = documentData?.isBlockchainEligible ||
+            isBlockchainDocument(requestData.documentType || requestData.document_type);
 
         try {
             if (isBlockchainEligible) {
                 const blockchainRes = await api.post('/blockchain/transactions', {
-                    nameOfStudent: requestData.name || "Unknown",
-                    ownerType: blockchainData.ownerType,
-                    course: blockchainData.ownerType === 'Student' ? blockchainData.course : "",
-                    yearLevel: blockchainData.ownerType === 'Student' ? blockchainData.yearLevel : "",
-                    studentIDNumber: blockchainData.studentIDNumber,
-                    typeOfDocument: requestData.documentType || requestData.document_type || "Document",
-                    nameOfSchool: blockchainData.nameOfSchool,
-                    yearGraduated: blockchainData.ownerType === 'Alumni' ? Number(blockchainData.yearGraduated) : 0
+                    requestId: id,
                 });
+
+                const recordedTransaction = blockchainRes.data.transaction;
+                if (!recordedTransaction || recordedTransaction.blockchainStatus !== 'Recorded') {
+                    throw new Error('The blockchain transaction was not confirmed.');
+                }
 
                 setBlockchainResult({
-                    referenceNumber: blockchainRes.data.referenceNumber || `TXN-${Date.now()}`,
-                    transactionHash: blockchainRes.data.blockchainTxHash || blockchainRes.data.transactionHash,
-                    blockchainTimestamp: blockchainRes.data.timestamp || new Date().toLocaleString(),
-                    studentIDNumber: blockchainData.studentIDNumber,
+                    referenceNumber: recordedTransaction.referenceNumber,
+                    transactionHash: recordedTransaction.blockchainTxHash,
+                    blockchainTimestamp: recordedTransaction.updatedAt || recordedTransaction.createdAt,
+                    studentIDNumber: recordedTransaction.studentIDNumber,
                 });
+            } else {
+                await api.put(`/requests/${id}`, { status: "Released" });
             }
 
-            await api.put(`/requests/${id}`, { status: "Released" });
-            setCurrentStep(4);
+            setCurrentStep(isBlockchainEligible ? 4 : 3);
             await fetchData();
-        } catch (err) {
+        } catch {
             showFeedback({
                 title: 'Failed to Finalize',
                 message: 'Oops! We ran into an issue while securing this document. Please try again later.',
@@ -255,8 +278,8 @@ const RequestDetails = () => {
     if (!requestData) return <Layout><div className="p-8 text-center text-red-500 font-bold">Request not found.</div></Layout>;
 
     const status = requestData.status || 'Pending';
-    const isPaymentCleared = paymentTx?.status === 'Completed';
-    const isBlockchainEligible = documentData?.isBlockchainEligible || (requestData.documentType || requestData.document_type || '').toLowerCase().includes('tor') || (requestData.documentType || requestData.document_type || '').toLowerCase().includes('diploma');
+    const isBlockchainEligible = documentData?.isBlockchainEligible ||
+        isBlockchainDocument(requestData.documentType || requestData.document_type);
 
     return (
         <Layout>
@@ -411,7 +434,7 @@ const RequestDetails = () => {
                                                         <p className="text-xs text-slate-500 mb-2">Receipt Uploaded</p>
                                                         <div className="bg-slate-100 rounded-lg p-2 h-64 flex items-center justify-center border border-slate-200">
                                                             {(paymentTx.imageUrl || paymentTx.receiptImage) ? (
-                                                                <img src={(paymentTx.imageUrl || paymentTx.receiptImage).startsWith('http') ? (paymentTx.imageUrl || paymentTx.receiptImage) : `${API_BASE}${paymentTx.receiptImage}`} alt="Receipt" className="max-h-full object-contain" />
+                                                                <img src={resolveApiAssetUrl(paymentTx.imageUrl || paymentTx.receiptImage)} alt="Receipt" className="max-h-full object-contain" />
                                                             ) : (
                                                                 <span className="text-slate-400 font-bold text-sm">No image uploaded</span>
                                                             )}
@@ -568,81 +591,7 @@ const RequestDetails = () => {
                                                     <ShieldCheck className="mt-1 shrink-0" />
                                                     <div>
                                                         <h4 className="font-bold">Blockchain Eligible Document</h4>
-                                                        <p className="text-sm">The uploaded PDF has been embedded with a unique QR code. Complete the details below to record this document immutably on the blockchain.</p>
-                                                    </div>
-                                                </div>
-
-                                                <div className="grid grid-cols-2 gap-6 mb-8">
-                                                    <div className="col-span-2">
-                                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Owner Type *</label>
-                                                        <select
-                                                            value={blockchainData.ownerType}
-                                                            onChange={(e) => setBlockchainData({ ...blockchainData, ownerType: e.target.value })}
-                                                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm focus:border-blue-500 outline-none"
-                                                        >
-                                                            <option value="Student">Student</option>
-                                                            <option value="Alumni">Alumni</option>
-                                                        </select>
-                                                    </div>
-                                                    <div>
-                                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-2">ID Number *</label>
-                                                        <input
-                                                            type="text"
-                                                            required
-                                                            placeholder="e.g. ID-2023-001"
-                                                            value={blockchainData.studentIDNumber}
-                                                            onChange={(e) => setBlockchainData({ ...blockchainData, studentIDNumber: e.target.value })}
-                                                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm focus:border-blue-500 outline-none"
-                                                        />
-                                                    </div>
-
-                                                    {blockchainData.ownerType === 'Alumni' ? (
-                                                        <div>
-                                                            <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Year Graduated *</label>
-                                                            <input
-                                                                type="number"
-                                                                required
-                                                                value={blockchainData.yearGraduated}
-                                                                onChange={(e) => setBlockchainData({ ...blockchainData, yearGraduated: e.target.value })}
-                                                                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm focus:border-blue-500 outline-none"
-                                                            />
-                                                        </div>
-                                                    ) : (
-                                                        <>
-                                                            <div>
-                                                                <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Course *</label>
-                                                                <input
-                                                                    type="text"
-                                                                    required
-                                                                    placeholder="e.g. BSCS"
-                                                                    value={blockchainData.course}
-                                                                    onChange={(e) => setBlockchainData({ ...blockchainData, course: e.target.value })}
-                                                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm focus:border-blue-500 outline-none"
-                                                                />
-                                                            </div>
-                                                            <div>
-                                                                <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Year Level *</label>
-                                                                <input
-                                                                    type="text"
-                                                                    required
-                                                                    placeholder="e.g. 3rd Year"
-                                                                    value={blockchainData.yearLevel}
-                                                                    onChange={(e) => setBlockchainData({ ...blockchainData, yearLevel: e.target.value })}
-                                                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm focus:border-blue-500 outline-none"
-                                                                />
-                                                            </div>
-                                                        </>
-                                                    )}
-
-                                                    <div className="col-span-2">
-                                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-2">School Name</label>
-                                                        <input
-                                                            type="text"
-                                                            required
-                                                            value={blockchainData.nameOfSchool}
-                                                            onChange={(e) => setBlockchainData({ ...blockchainData, nameOfSchool: e.target.value })}
-                                                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm focus:border-blue-500 outline-none"
-                                                        />
+                                                        <p className="text-sm">The uploaded PDF has a unique QR code. Student and document metadata will be loaded from the authenticated request so it cannot be altered during issuance.</p>
                                                     </div>
                                                 </div>
                                             </div>
@@ -655,7 +604,7 @@ const RequestDetails = () => {
                                             >Back</button>
                                             <button
                                                 className={`flex-[2] text-white py-4 rounded-xl font-bold transition-all shadow-md disabled:opacity-50 ${(!hasProcessingAccess) ? 'bg-slate-300 shadow-none' : (isBlockchainEligible ? 'bg-[#2c3e50] hover:bg-[#1a252f]' : 'bg-green-600 hover:bg-green-700')}`}
-                                                disabled={actionLoading || !hasProcessingAccess || (isBlockchainEligible && !blockchainData.studentIDNumber)}
+                                                disabled={actionLoading || !hasProcessingAccess}
                                                 onClick={() => showConfirm({
                                                     title: isBlockchainEligible ? 'Secure to Blockchain' : 'Finalize Document',
                                                     message: 'Are you sure you want to finalize this request?',
@@ -697,15 +646,14 @@ const RequestDetails = () => {
 
                                         <div className="flex gap-4 justify-center">
                                             {requestData.documentFile && (
-                                                <a
-                                                    href={requestData.documentFile.startsWith('data:') ? requestData.documentFile : `${API_BASE}${requestData.documentFile}`}
-                                                    download={requestData.documentFile.startsWith('data:') ? `document-${requestData.requestId}.pdf` : undefined}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
+                                                <button
+                                                    type="button"
+                                                    onClick={downloadCompletedDocument}
+                                                    disabled={actionLoading}
                                                     className="bg-blue-600 text-white px-8 py-4 rounded-xl font-bold hover:bg-blue-700 transition-colors shadow-lg flex items-center gap-2"
                                                 >
                                                     <FileText size={20} /> View / Download Document
-                                                </a>
+                                                </button>
                                             )}
                                             <button
                                                 className="bg-slate-800 text-white px-8 py-4 rounded-xl font-bold hover:bg-slate-900 transition-colors shadow-lg"
@@ -728,7 +676,7 @@ const RequestDetails = () => {
                                                         }
                                                     })}
                                                 >
-                                                    <AlertCircle size={16} /> Super Admin: Revert to "In Process"
+                                                    <AlertCircle size={16} /> Super Admin: Revert to &quot;In Process&quot;
                                                 </button>
                                             </div>
                                         )}

@@ -6,9 +6,13 @@ const crypto = require('crypto');
 const Document = require('../models/Document');
 const ActivityLog = require('../models/ActivityLog');
 const Request = require('../models/Request');
-const Transaction = require('../models/Transaction');
 const blockchainService = require('../services/blockchainService');
 const { protect, superAdminOnly, registrarOrSuperAdmin } = require('../middleware/authMiddleware');
+const {
+  decodePdf,
+  encodePdf,
+  storedPdfMarker,
+} = require('../utils/storedPdf');
 
 // Configure multer for memory storage
 const storage = multer.memoryStorage();
@@ -22,7 +26,7 @@ const upload = multer({
       cb(new Error('Only PDF files are allowed'), false);
     }
   },
-  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
+  limits: { fileSize: 4 * 1024 * 1024 }
 });
 
 // @route   GET /api/documents
@@ -64,7 +68,13 @@ router.post('/', protect, registrarOrSuperAdmin, upload.single('pdfFile'), async
     }
 
     const documentId = 'DOC-' + Date.now();
-    const pdfPath = req.file ? `data:application/pdf;base64,${req.file.buffer.toString('base64')}` : '';
+    if (req.file && req.file.buffer.subarray(0, 5).toString('ascii') !== '%PDF-') {
+      return res.status(400).json({ message: 'Uploaded file is not a valid PDF.' });
+    }
+    const pdfPath = req.file
+      ? storedPdfMarker(req.file.originalname || `${documentId}.pdf`)
+      : '';
+    const pdfData = req.file ? encodePdf(req.file.buffer) : '';
 
     const newDoc = await Document.create({
       documentId,
@@ -78,6 +88,7 @@ router.post('/', protect, registrarOrSuperAdmin, upload.single('pdfFile'), async
       linkedRequestId: linkedRequestId || '',
       status: 'Draft',
       pdfPath,
+      pdfData,
       notes: notes || '',
       generatedBy: req.user.name || req.user.email || ''
     });
@@ -105,17 +116,29 @@ router.put('/:id', protect, registrarOrSuperAdmin, upload.single('pdfFile'), asy
   try {
     const doc = await Document.findOne({ documentId: req.params.id });
     if (!doc) return res.status(404).json({ message: 'Document not found' });
+    if (doc.status !== 'Draft') {
+      return res.status(409).json({
+        message: 'Finalized documents are immutable. Create a new issuance instead.',
+      });
+    }
 
-    const { status, notes, studentName, studentId, course, yearLevel, purpose } = req.body;
+    const { notes, studentName, studentId, course, yearLevel, purpose } = req.body;
 
-    if (status) doc.status = status;
     if (notes !== undefined) doc.notes = notes;
     if (studentName) doc.studentName = studentName;
     if (studentId) doc.studentId = studentId;
     if (course !== undefined) doc.course = course;
     if (yearLevel !== undefined) doc.yearLevel = yearLevel;
     if (purpose !== undefined) doc.purpose = purpose;
-    if (req.file) doc.pdfPath = `data:application/pdf;base64,${req.file.buffer.toString('base64')}`;
+    if (req.file) {
+      if (req.file.buffer.subarray(0, 5).toString('ascii') !== '%PDF-') {
+        return res.status(400).json({ message: 'Uploaded file is not a valid PDF.' });
+      }
+      doc.pdfPath = storedPdfMarker(
+        req.file.originalname || `${doc.documentId}.pdf`,
+      );
+      doc.pdfData = encodePdf(req.file.buffer);
+    }
 
     await doc.save();
 
@@ -138,50 +161,66 @@ router.put('/:id', protect, registrarOrSuperAdmin, upload.single('pdfFile'), asy
 
 // @route   POST /api/documents/:id/finalize
 // @desc    Finalize a document (Document Management only — no hash/blockchain)
-router.post('/:id/finalize', protect, registrarOrSuperAdmin, async (req, res) => {
-  try {
-    const doc = await Document.findOne({ documentId: req.params.id });
-    if (!doc) return res.status(404).json({ message: 'Document not found' });
-
-    if (doc.status !== 'Draft') {
-      return res.status(400).json({ message: 'Only documents in Draft status can be finalized' });
-    }
-
-    doc.status = 'Finalized';
-    await doc.save();
-
-    await ActivityLog.create({
-      userEmail: req.user.email,
-      userName: req.user.name || 'User',
-      action: 'Finalize Document',
-      type: doc.documentType,
-      status: 'Successful',
-      details: `Finalized ${doc.documentType} for ${doc.studentName} (${doc.documentId})`
-    });
-
-    res.json(doc);
-  } catch (error) {
-    console.error('Error finalizing document:', error);
-    res.status(500).json({ message: 'Error finalizing document' });
-  }
+router.post('/:id/finalize', protect, registrarOrSuperAdmin, (_req, res) => {
+  return res.status(410).json({
+    message: 'Use secure issuance so the final PDF is hashed before finalization.',
+  });
 });
 
 // @route   POST /api/documents/:id/generate-hash
 // @desc    Generate SHA-256 hash for a document
 router.post('/:id/generate-hash', protect, registrarOrSuperAdmin, async (req, res) => {
   try {
-    const doc = await Document.findOne({ documentId: req.params.id });
+    const doc = await Document.findOne({ documentId: req.params.id })
+      .select('+pdfData');
     if (!doc) return res.status(404).json({ message: 'Document not found' });
 
+    const pdfBuffer = decodePdf(doc.pdfData) || decodePdf(doc.pdfPath);
+    if (!pdfBuffer) {
+      return res.status(409).json({
+        message: 'Attach a valid PDF before generating its verification hash.'
+      });
+    }
+
     const hash = crypto.createHash('sha256')
-      .update(`${doc.documentId}-${doc.studentName}-${doc.documentType}-${Date.now()}`)
+      .update(pdfBuffer)
       .digest('hex');
+
+    if (doc.status === 'Released') {
+      return res.status(409).json({ message: 'Released documents are immutable.' });
+    }
+    if (doc.documentHash) {
+      if (doc.documentHash !== hash || doc.status !== 'Finalized') {
+        return res.status(409).json({
+          message: 'Stored PDF bytes no longer match the finalized fingerprint.',
+        });
+      }
+      return res.json({
+        message: 'Document was already finalized with this fingerprint.',
+        hash,
+        document: doc,
+        alreadyFinalized: true,
+      });
+    }
 
     // Only allow Transcript of Records and Diploma to be anchored to the blockchain
     const isBlockchainEligible = 
       doc.category === 'Transcript of Records' || 
       doc.documentType.toLowerCase().includes('diploma') || 
       doc.documentType.toLowerCase().includes('transcript');
+
+    let linkedRequest = null;
+    if (doc.linkedRequestId) {
+      linkedRequest = await Request.findOne({ requestId: doc.linkedRequestId });
+      if (!linkedRequest) {
+        return res.status(404).json({ message: 'Linked request not found.' });
+      }
+      if (linkedRequest.status !== 'In Process') {
+        return res.status(409).json({
+          message: 'The linked request must be in process before issuance.',
+        });
+      }
+    }
 
     let anchorResult = { 
       isSimulated: false, 
@@ -204,39 +243,42 @@ router.post('/:id/generate-hash', protect, registrarOrSuperAdmin, async (req, re
       );
     }
 
-    // Sync with Request collection in MongoDB
-    if (doc.linkedRequestId) {
-      await Request.findOneAndUpdate(
-        { requestId: doc.linkedRequestId },
-        { documentHash: hash, status: 'Released' }
-      );
-    } else {
-      // Create a dummy Request to allow public verification compatibility
-      await Request.create({
-        requestId: doc.documentId,
-        name: doc.studentName,
-        status: 'Released',
-        documentType: doc.documentType,
-        documentHash: hash
-      });
-    }
-
-    // Create a corresponding completed transaction for ledger lookup
-    await Transaction.create({
-      transactionId: anchorResult.txID || 'TXN-' + Date.now(),
-      requestId: doc.linkedRequestId || doc.documentId,
-      name: doc.studentName,
-      documentType: doc.documentType,
-      paymentMode: 'Other Online Payment',
-      amount: '0.00',
-      status: 'Completed',
-      verifiedBy: req.user.email || req.user.name || 'System Admin',
-      verifiedAt: new Date()
-    });
-
     doc.documentHash = hash;
+    doc.blockchainStatus = isBlockchainEligible ? 'Recorded' : '';
+    doc.blockchainTxHash = isBlockchainEligible ? anchorResult.txID : '';
+    doc.blockchainBlockNumber = isBlockchainEligible
+      ? anchorResult.blockNumber
+      : null;
     doc.status = 'Finalized';
     await doc.save();
+
+    if (linkedRequest) {
+      const releasedRequest = await Request.findOneAndUpdate(
+        {
+          _id: linkedRequest._id,
+          status: 'In Process',
+        },
+        {
+          $set: {
+            documentFile: encodePdf(pdfBuffer),
+            hasDocument: true,
+            documentHash: hash,
+            blockchainStatus: isBlockchainEligible ? 'Recorded' : '',
+            blockchainTxHash: isBlockchainEligible ? anchorResult.txID : '',
+            blockchainBlockNumber: isBlockchainEligible
+              ? anchorResult.blockNumber
+              : null,
+            status: 'Released',
+          },
+        },
+        { new: true },
+      );
+      if (!releasedRequest) {
+        return res.status(409).json({
+          message: 'The document was finalized, but the request state changed before release.',
+        });
+      }
+    }
 
     await ActivityLog.create({
       userEmail: req.user.email,
@@ -259,7 +301,12 @@ router.post('/:id/generate-hash', protect, registrarOrSuperAdmin, async (req, re
     });
   } catch (error) {
     console.error('Error generating hash:', error);
-    res.status(500).json({ message: 'Error generating hash and anchoring to blockchain' });
+    const unavailable = error?.code === 'BLOCKCHAIN_UNAVAILABLE';
+    res.status(unavailable ? 503 : 500).json({
+      message: unavailable
+        ? 'Blockchain ledger is temporarily unavailable. The document was not finalized.'
+        : 'Error generating hash and anchoring to blockchain'
+    });
   }
 });
 
@@ -269,6 +316,11 @@ router.delete('/:id', protect, superAdminOnly, async (req, res) => {
   try {
     const doc = await Document.findOne({ documentId: req.params.id });
     if (!doc) return res.status(404).json({ message: 'Document not found' });
+    if (doc.status !== 'Draft') {
+      return res.status(409).json({
+        message: 'Finalized credentials require an explicit revocation workflow and cannot be deleted.',
+      });
+    }
 
     await Document.deleteOne({ documentId: req.params.id });
 
@@ -291,15 +343,14 @@ router.delete('/:id', protect, superAdminOnly, async (req, res) => {
 // @desc    Download the PDF for a document
 router.get('/:id/download', protect, registrarOrSuperAdmin, async (req, res) => {
   try {
-    const doc = await Document.findOne({ documentId: req.params.id });
+    const doc = await Document.findOne({ documentId: req.params.id })
+      .select('+pdfData');
     if (!doc || !doc.pdfPath) {
       return res.status(404).json({ message: 'PDF not found for this document' });
     }
 
-    if (doc.pdfPath.startsWith('data:application/pdf;base64,')) {
-      const base64Data = doc.pdfPath.replace('data:application/pdf;base64,', '');
-      const pdfBuffer = Buffer.from(base64Data, 'base64');
-      
+    const pdfBuffer = decodePdf(doc.pdfData) || decodePdf(doc.pdfPath);
+    if (pdfBuffer) {
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="${doc.documentType}-${doc.studentName}.pdf"`);
       res.send(pdfBuffer);
