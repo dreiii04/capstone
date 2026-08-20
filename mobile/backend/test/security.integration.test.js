@@ -329,6 +329,17 @@ describe('backend security integration', { concurrency: false }, () => {
     assert.equal(health.response.headers.get('cache-control'), 'no-store');
   });
 
+  test('direct deployments accept the public /api route prefix', async () => {
+    const health = await request(baseUrl, '/api/health');
+    assert.equal(health.response.status, 200, health.text);
+    assert.equal(health.json?.success, true);
+
+    const profile = await request(baseUrl, '/api/profile');
+    assert.equal(profile.response.status, 401, profile.text);
+    assert.equal(profile.json?.success, false);
+    assert.match(String(profile.json?.message || ''), /token|authorization/i);
+  });
+
   test('inactive accounts cannot log in or receive tokens', async () => {
     const user = memoryUsers.get(email);
     assert.ok(user, 'Expected the registered test user to exist.');

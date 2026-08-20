@@ -5,7 +5,7 @@ void main() {
   test('uses only the centralized deployed API', () {
     expect(
       ApiConstants.baseUrl,
-      'https://verifitormob-backend.vercel.app/api',
+      'https://verifitor-backend-beta.vercel.app/api',
     );
   });
 

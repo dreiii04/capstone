@@ -113,6 +113,25 @@ const maxOtpVerificationAttempts = 5;
 initializeMediaStorage();
 
 const app = express();
+
+// Keep the public API contract stable when Vercel deploys this directory
+// directly instead of invoking mobile/api/index.js. The Vercel entrypoint
+// already removes this prefix, so requests routed through it are unchanged.
+app.use((req, _res, next) => {
+  const url = String(req.url || '/');
+
+  if (url === '/api' || url.startsWith('/api/') || url.startsWith('/api?')) {
+    const suffix = url.slice('/api'.length);
+    req.url = !suffix
+      ? '/'
+      : suffix.startsWith('?')
+        ? `/${suffix}`
+        : suffix;
+  }
+
+  next();
+});
+
 applyAppMiddleware(app);
 
 function normalizeEmail(email) {
