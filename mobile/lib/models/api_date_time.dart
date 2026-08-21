@@ -1,11 +1,34 @@
+const Duration _philippineUtcOffset = Duration(hours: 8);
+
+DateTime _toPhilippineWallClock(DateTime value) {
+  final utc = value.toUtc();
+  final philippines = utc.add(_philippineUtcOffset);
+  return DateTime(
+    philippines.year,
+    philippines.month,
+    philippines.day,
+    philippines.hour,
+    philippines.minute,
+    philippines.second,
+    philippines.millisecond,
+    philippines.microsecond,
+  );
+}
+
 DateTime? tryParseApiDateTime(dynamic value) {
-  if (value is DateTime) return value.isUtc ? value.toLocal() : value;
+  if (value is DateTime) {
+    return value.isUtc ? _toPhilippineWallClock(value) : value;
+  }
   if (value is String) {
     final parsed = DateTime.tryParse(value.trim());
-    if (parsed != null) return parsed.isUtc ? parsed.toLocal() : parsed;
+    if (parsed != null) {
+      return parsed.isUtc ? _toPhilippineWallClock(parsed) : parsed;
+    }
   }
   if (value is int) {
-    return DateTime.fromMillisecondsSinceEpoch(value, isUtc: true).toLocal();
+    return _toPhilippineWallClock(
+      DateTime.fromMillisecondsSinceEpoch(value, isUtc: true),
+    );
   }
   return null;
 }

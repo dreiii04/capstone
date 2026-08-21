@@ -719,6 +719,97 @@ describe('backend security integration', { concurrency: false }, () => {
     assert.equal(updated.json?.user?.passwordHash, undefined);
   });
 
+  test('current students cannot change their email or student ID', async () => {
+    const studentEmail = 'immutable.student@example.test';
+    const studentUserId = '64b000000000000000000011';
+    const student = {
+      _id: studentUserId,
+      firstName: 'Current',
+      lastName: 'Student',
+      email: studentEmail,
+      schoolEmail: studentEmail,
+      studentId: '2026-00001',
+      yearLevel: '4th Year',
+      program: 'Information Technology',
+      role: 'student',
+      status: 'Active',
+      sessionVersion: 0,
+      refreshTokens: [],
+    };
+    memoryUsers.set(studentEmail, student);
+
+    const studentToken = jwt.sign(
+      {
+        sub: studentUserId,
+        email: studentEmail,
+        role: 'student',
+        sv: 0,
+      },
+      JWT_SECRET,
+      {
+        algorithm: 'HS256',
+        issuer: JWT_ISSUER,
+        audience: JWT_AUDIENCE,
+        expiresIn: '15m',
+      },
+    );
+    const profilePayload = {
+      firstName: 'Current',
+      lastName: 'Student',
+      schoolEmail: studentEmail,
+      personalEmail: '',
+      studentId: student.studentId,
+      yearLevel: student.yearLevel,
+      program: student.program,
+    };
+
+    try {
+      const changedEmail = await request(baseUrl, '/profile', {
+        method: 'PUT',
+        headers: bearer(studentToken),
+        json: {
+          ...profilePayload,
+          schoolEmail: 'changed.student@example.test',
+        },
+      });
+      assert.equal(changedEmail.response.status, 400, changedEmail.text);
+      assert.match(changedEmail.json?.message || '', /email.*change/i);
+
+      const changedStudentId = await request(baseUrl, '/profile', {
+        method: 'PUT',
+        headers: bearer(studentToken),
+        json: {
+          ...profilePayload,
+          studentId: '2026-00002',
+        },
+      });
+      assert.equal(
+        changedStudentId.response.status,
+        400,
+        changedStudentId.text,
+      );
+      assert.equal(
+        changedStudentId.json?.message,
+        'Student ID cannot be changed.',
+      );
+
+      const editableFields = await request(baseUrl, '/profile', {
+        method: 'PUT',
+        headers: bearer(studentToken),
+        json: {
+          ...profilePayload,
+          firstName: 'Updated',
+        },
+      });
+      assert.equal(editableFields.response.status, 200, editableFields.text);
+      assert.equal(editableFields.json?.user?.firstName, 'Updated');
+      assert.equal(editableFields.json?.user?.email, studentEmail);
+      assert.equal(editableFields.json?.user?.studentId, student.studentId);
+    } finally {
+      memoryUsers.delete(studentEmail);
+    }
+  });
+
   test('name edit followed by one login always returns the same requests', async () => {
     const createdIds = [
       'req_single_login_regression_a',
@@ -1195,6 +1286,20 @@ describe('backend security integration', { concurrency: false }, () => {
         (item) => item.requestId === requestId,
       );
       assert.equal(String(stored?.paymentReceiptId || ''), submitted.json.receiptId);
+      const storedReceipt = memoryTransactions.find(
+        (item) => item.requestId === requestId,
+      );
+      assert(storedReceipt, 'Expected the receipt transaction to be stored.');
+      assert.match(
+        String(storedReceipt.receiptImage || ''),
+        /^\/uploads\/receipts\/receipt-[a-f0-9]+\.png$/,
+      );
+      assert.equal(storedReceipt.imageUrl, storedReceipt.receiptImage);
+      assert.match(String(storedReceipt.publicId || ''), /^local-receipt-/);
+      assert.equal(
+        storedReceipt.receiptImagePublicId,
+        storedReceipt.publicId,
+      );
     } finally {
       const requestIndex = memoryRequests.findIndex(
         (item) => item.requestId === requestId,
@@ -1248,6 +1353,18 @@ describe('backend security integration', { concurrency: false }, () => {
     );
     assert.equal(receipt.response.status, 200, receipt.text);
     assert.equal(receipt.json?.receipt?.id, first.json.receiptId);
+    assert.match(
+      String(receipt.json?.receipt?.receiptImage || ''),
+      /^\/uploads\/receipts\/receipt-[a-f0-9]+\.png$/,
+    );
+    assert.equal(
+      receipt.json?.receipt?.imageUrl,
+      receipt.json?.receipt?.receiptImage,
+    );
+    assert.match(
+      String(receipt.json?.receipt?.publicId || ''),
+      /^local-receipt-/,
+    );
 
     const requests = await request(baseUrl, '/requests', {
       headers: bearer(accessToken),

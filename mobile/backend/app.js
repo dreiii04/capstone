@@ -650,6 +650,10 @@ function buildReceiptRecord({
     mobileStatus: status,
     imageUrl: imageUrl,
     publicId: publicId || '',
+    receiptImagePublicId: publicId || '',
+    receiptStorage: String(publicId || '').startsWith('local-')
+      ? 'local'
+      : 'cloudinary',
     originalName,
     mimeType,
     size,
@@ -667,6 +671,9 @@ function buildReceiptResponse(record) {
     paymentType: record.paymentType || '',
     docName: record.docName || '',
     purpose: record.purpose || '',
+    receiptImage: record.receiptImage || record.imageUrl || '',
+    imageUrl: record.imageUrl || record.receiptImage || '',
+    publicId: record.publicId || record.receiptImagePublicId || '',
     createdAt: record.createdAt || new Date().toISOString(),
   };
 }
@@ -1405,6 +1412,12 @@ function buildTransactionResponse(
     remarks,
     remark: remarks,
     rejectionReason: remarks,
+    receiptImage: firstNonEmptyString(record.receiptImage, record.imageUrl),
+    imageUrl: firstNonEmptyString(record.imageUrl, record.receiptImage),
+    publicId: firstNonEmptyString(
+      record.publicId,
+      record.receiptImagePublicId,
+    ),
     ...refund,
     refundId: firstNonEmptyString(refundRecord?._id, refundRecord?.id),
     refundUpdatedAt: firstNonEmptyString(
@@ -2415,6 +2428,18 @@ app.post(
         req.file,
         imageMetadata,
       );
+      const receiptImageUrl = firstNonEmptyString(
+        uploadResult?.secure_url,
+        uploadResult?.url,
+      );
+      const receiptPublicId = firstNonEmptyString(uploadResult?.public_id);
+      if (!receiptImageUrl || !receiptPublicId) {
+        await deleteUploadedReceipt(receiptPublicId);
+        return res.status(502).json({
+          success: false,
+          message: 'The receipt image could not be stored. Please try again.',
+        });
+      }
       const receipt = buildReceiptRecord({
         user,
         paymentType,
@@ -2423,8 +2448,8 @@ app.post(
         trueRequestId, // Pass the real requestId
         amount,
         status: 'pending',
-        imageUrl: uploadResult?.secure_url || '',
-        publicId: uploadResult?.public_id || '',
+        imageUrl: receiptImageUrl,
+        publicId: receiptPublicId,
         originalName: imageMetadata.originalName,
         mimeType: imageMetadata.mimeType,
         size: req.file.size,
@@ -3137,12 +3162,17 @@ app.put('/profile', requireAuth, writeLimiter, async (req, res, next) => {
       });
     }
 
-    if (isStudent &&
-        (!studentIdRegex.test(parsed.studentId) ||
-          !studentYearLevels.has(parsed.yearLevel))) {
+    if (isStudent && !studentYearLevels.has(parsed.yearLevel)) {
       return res.status(400).json({
         success: false,
-        message: 'Enter valid student ID and year-level details.',
+        message: 'Select a valid year level.',
+      });
+    }
+    const storedStudentId = String(user.studentId || '').trim();
+    if (isStudent && parsed.studentId !== storedStudentId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Student ID cannot be changed.',
       });
     }
     if (!isStudent) {
@@ -3166,7 +3196,7 @@ app.put('/profile', requireAuth, writeLimiter, async (req, res, next) => {
     const updates = {
       firstName: parsed.firstName,
       lastName: parsed.lastName,
-      studentId: isStudent ? parsed.studentId : '',
+      studentId: isStudent ? storedStudentId : '',
       yearLevel: parsed.yearLevel,
       program: parsed.program,
     };

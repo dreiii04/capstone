@@ -86,7 +86,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('login email is immutable and password fields stay off this page',
+  testWidgets('student ID and login email are immutable',
       (tester) async {
     await _pumpEditProfile(tester, const Size(412, 900));
 
@@ -95,6 +95,11 @@ void main() {
     );
     expect(emailField.enabled, isFalse);
     expect(find.text('Your login email cannot be changed.'), findsOneWidget);
+    final studentIdField = tester.widget<TextFormField>(
+      find.byKey(const Key('edit_student_id_field')),
+    );
+    expect(studentIdField.enabled, isFalse);
+    expect(find.text('Your student ID cannot be changed.'), findsOneWidget);
     expect(find.byKey(const Key('change_current_password_field')), findsNothing);
     expect(find.byKey(const Key('change_new_password_field')), findsNothing);
     expect(find.byKey(const Key('change_confirm_password_field')), findsNothing);

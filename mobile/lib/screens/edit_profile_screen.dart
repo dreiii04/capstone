@@ -49,14 +49,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   bool get _hasChanges {
     final profile = widget.profile;
-    final accountFieldsChanged = profile.isCurrentStudent &&
-        _studentIdController.text.trim() != profile.studentId.trim();
     return _image != null ||
         _firstNameController.text.trim() != profile.firstName.trim() ||
         _lastNameController.text.trim() != profile.lastName.trim() ||
         _yearLevelController.text.trim() != profile.yearLevel.trim() ||
-        _programController.text.trim() != profile.program.trim() ||
-        accountFieldsChanged;
+        _programController.text.trim() != profile.program.trim();
   }
 
   @override
@@ -145,7 +142,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       firstName: _firstNameController.text.trim(),
       lastName: _lastNameController.text.trim(),
       studentId: widget.profile.isCurrentStudent
-          ? _studentIdController.text.trim()
+          ? widget.profile.studentId
           : '',
       yearLevel: _yearLevelController.text.trim(),
       program: _programController.text.trim(),
@@ -444,6 +441,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               label: 'Student ID',
               icon: Icons.credit_card_rounded,
               hint: 'e.g. 2026-00001',
+              helper: 'Your student ID cannot be changed.',
+              enabled: false,
             ),
           ],
           const SizedBox(height: 14),

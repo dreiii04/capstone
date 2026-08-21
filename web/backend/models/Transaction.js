@@ -36,6 +36,23 @@ const transactionSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
+  imageUrl: {
+    type: String,
+    default: ''
+  },
+  publicId: {
+    type: String,
+    default: ''
+  },
+  receiptImagePublicId: {
+    type: String,
+    default: ''
+  },
+  receiptStorage: {
+    type: String,
+    enum: ['', 'cloudinary', 'local'],
+    default: ''
+  },
   payerName: {
     type: String,
     default: ''

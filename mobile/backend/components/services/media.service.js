@@ -59,8 +59,8 @@ export async function uploadReceipt(file, imageMetadata) {
       file.buffer,
     );
     return {
-      secure_url: '',
-      url: '',
+      secure_url: `/uploads/receipts/${fileName}`,
+      url: `/uploads/receipts/${fileName}`,
       public_id: `local-${fileName}`,
       type: 'authenticated',
     };
@@ -79,12 +79,20 @@ export async function uploadReceipt(file, imageMetadata) {
       (error, result) => {
         if (error) return reject(error);
         try {
+          const deliveryUrl = buildAuthenticatedReceiptDeliveryUrl(result);
+          if (!deliveryUrl) {
+            const deliveryError = new Error(
+              'Receipt storage did not return a delivery URL.',
+            );
+            deliveryError.code = 'RECEIPT_DELIVERY_URL_MISSING';
+            return reject(deliveryError);
+          }
           return resolve({
             ...result,
             // Authenticated Cloudinary assets reject their ordinary secure_url.
             // Persist the signed delivery URL for the protected admin API while
             // keeping the unsigned asset unavailable.
-            secure_url: buildAuthenticatedReceiptDeliveryUrl(result),
+            secure_url: deliveryUrl,
           });
         } catch (urlError) {
           return reject(urlError);
