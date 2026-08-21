@@ -5,7 +5,7 @@
   },
   "scripts": {
     "dev": "npm --prefix backend run dev",
-    "test:backend-deployment": "node backend/test/vercel-entrypoint.smoke.cjs"
+    "test:backend-deployment": "node backend/test/vercel-entrypoint.smoke.cjs && node --test backend/test/vercel-production-startup.test.cjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

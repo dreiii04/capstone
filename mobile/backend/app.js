@@ -3860,12 +3860,17 @@ let backendInitialized = false;
 
 export function initializeBackend() {
   backendInitializationPromise ||= (async () => {
+    if (config.startupError) {
+      throw new Error(config.startupError);
+    }
+
+    await initializeDatabase();
+
     if (!cleanupTimer) {
       cleanupTimer = setInterval(cleanupOtpData, 60 * 1000);
       cleanupTimer.unref?.();
     }
 
-    await initializeDatabase();
     backendInitialized = true;
   })().catch((error) => {
     backendInitializationPromise = undefined;

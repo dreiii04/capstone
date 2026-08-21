@@ -44,17 +44,7 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
-# Local env vars for MongoDB credentials
-.env
-**/.env
-.env.local
-**/.env.local
-.env.*
-**/.env.*
-.local-jwt-secret
-**/.local-jwt-secret
-!.env.example
-!**/.env.example
+
 
 # Private keys and signing credentials
 *.pem

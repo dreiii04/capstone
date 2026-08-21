@@ -21,6 +21,9 @@ export let refunds;
 export let authChallenges;
 export let rateLimits;
 
+let database;
+let connectionPromise;
+
 function bindCollections(database) {
   alumniUsers = database.collection(config.database.alumniCollection);
   studentUsers = database.collection(config.database.studentsCollection);
@@ -33,13 +36,23 @@ function bindCollections(database) {
   rateLimits = database.collection('rate_limits');
 }
 
-export async function connectDatabase() {
+export function connectDatabase() {
   if (!dbEnabled) return null;
   if (!client) throw new Error('MongoDB is not configured.');
-  await client.connect();
-  const database = client.db(config.database.name);
-  bindCollections(database);
-  return database;
+  if (database) return database;
+
+  connectionPromise ||= (async () => {
+    await client.connect();
+    database = client.db(config.database.name);
+    bindCollections(database);
+    return database;
+  })().catch((error) => {
+    connectionPromise = undefined;
+    database = undefined;
+    throw error;
+  });
+
+  return connectionPromise;
 }
 
 export async function ensureDb() {

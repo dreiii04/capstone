@@ -120,8 +120,7 @@ export async function initializeDatabase() {
     return;
   }
   if (!client) {
-    console.warn('MongoDB is not configured. API requests will fail closed.');
-    return;
+    throw new Error('MONGODB_URI must be configured.');
   }
 
   try {
@@ -134,10 +133,9 @@ export async function initializeDatabase() {
       console.warn('Database migration failed.');
     }
   } catch (error) {
-    console.error(
-      config.isProduction
-        ? 'MongoDB connection failed.'
-        : `MongoDB connection failed: ${error.message}`,
+    throw new Error(
+      `MongoDB connection failed: ${error.message}`,
+      { cause: error },
     );
   }
 }

@@ -21,7 +21,7 @@ The mobile API URL is defined once in `lib/constants.dart` as
 `ApiConstants.baseUrl`:
 
 ```text
-https://verifitormob-backend.vercel.app/api
+https://verifitor-backend-beta.vercel.app/api
 ```
 
 All HTTP and multipart requests are created by `MongoDataApiService` from that
@@ -32,7 +32,8 @@ changing source files:
 
 ```powershell
 flutter run --dart-define=API_BASE_URL=http://10.0.2.2:4000
-flutter build web --dart-define=API_BASE_URL=https://verifitormob-backend.vercel.app/api
+flutter build apk --release --dart-define=API_BASE_URL=https://verifitor-backend-beta.vercel.app/api
+flutter build web --dart-define=API_BASE_URL=https://verifitor-backend-beta.vercel.app/api
 ```
 
 For a browser deployment, set the backend's `ALLOWED_ORIGIN` environment

@@ -12,10 +12,14 @@ export const backendRoot = path.resolve(
   '..',
 );
 
-// Local development only.
-// Vercel / Render / Railway will use process.env instead.
+// Local development only. Prefer .env.local, then fill any unset values from
+// .env. Neither file is committed or deployed; hosted environments use the
+// variables supplied through process.env.
 dotenv.config({
   path: path.join(backendRoot, '.env.local'),
+});
+dotenv.config({
+  path: path.join(backendRoot, '.env'),
 });
 
 function loadOrCreateLocalJwtSecret() {
@@ -246,27 +250,37 @@ function buildConfig(env) {
   // STARTUP VALIDATION
   // --------------------------------------------------
 
-  let startupError = null;
+  const startupErrors = [];
 
   // Only core configuration should be capable
   // of taking the entire backend offline.
 
-  if (
+  if (databaseEnabled && !mongoUri) {
+    startupErrors.push(
+      'Missing required environment variable: MONGODB_URI.',
+    );
+  } else if (
     databaseEnabled &&
     !mongoUriIsValid
   ) {
-    startupError =
-      'MONGODB_URI must be configured.';
+    startupErrors.push(
+      'MONGODB_URI must use a mongodb:// or mongodb+srv:// URI.',
+    );
   }
 
-  if (
+  if (isProduction && !configuredJwtSecret) {
+    startupErrors.push(
+      'Missing required environment variable: JWT_SECRET.',
+    );
+  } else if (
     Buffer.byteLength(
       jwtSecret,
       'utf8',
     ) < 32
   ) {
-    startupError ||=
-      'JWT_SECRET must contain at least 32 bytes.';
+    startupErrors.push(
+      'JWT_SECRET must contain at least 32 bytes.',
+    );
   }
 
   if (
@@ -274,8 +288,9 @@ function buildConfig(env) {
       jwtSecret,
     )
   ) {
-    startupError ||=
-      'JWT_SECRET must not use a placeholder value.';
+    startupErrors.push(
+      'JWT_SECRET must not use a placeholder value.',
+    );
   }
 
   // Native mobile apps can leave
@@ -296,39 +311,46 @@ function buildConfig(env) {
       }
     })
   ) {
-    startupError ||=
-      'Production ALLOWED_ORIGIN entries must be valid HTTPS origins.';
+    startupErrors.push(
+      'ALLOWED_ORIGIN entries must be valid HTTPS origins in production.',
+    );
   }
 
   if (
     isProduction &&
     env.OTP_DEV_MODE === 'true'
   ) {
-    startupError ||=
-      'OTP_DEV_MODE must be disabled in production.';
+    startupErrors.push(
+      'OTP_DEV_MODE must be disabled in production.',
+    );
   }
 
   if (
     isProduction &&
     !databaseEnabled
   ) {
-    startupError ||=
-      'DISABLE_DB cannot be enabled in production.';
+    startupErrors.push(
+      'DISABLE_DB cannot be enabled in production.',
+    );
   }
 
-  if (
-    !Number.isFinite(otpTtl) ||
-    otpTtl < 5 ||
-    otpTtl > 30 ||
-    !Number.isFinite(accessTtl) ||
-    accessTtl < 5 ||
-    accessTtl > 60 ||
-    !Number.isFinite(refreshTtl) ||
-    refreshTtl < 1 ||
-    refreshTtl > 90
-  ) {
-    startupError ||=
-      'Authentication TTL configuration is invalid.';
+  const invalidTtlVariables = [
+    ...(!Number.isFinite(otpTtl) || otpTtl < 5 || otpTtl > 30
+      ? ['OTP_TTL_MINUTES']
+      : []),
+    ...(!Number.isFinite(accessTtl) || accessTtl < 5 || accessTtl > 60
+      ? ['JWT_ACCESS_TTL_MINUTES']
+      : []),
+    ...(!Number.isFinite(refreshTtl) || refreshTtl < 1 || refreshTtl > 90
+      ? ['JWT_REFRESH_TTL_DAYS']
+      : []),
+  ];
+  if (invalidTtlVariables.length > 0) {
+    startupErrors.push(
+      `Invalid authentication TTL environment variable(s): ${
+        invalidTtlVariables.join(', ')
+      }.`,
+    );
   }
 
   // --------------------------------------------------
@@ -499,7 +521,10 @@ function buildConfig(env) {
         ),
     }),
 
-    startupError,
+    startupError:
+      startupErrors.length > 0
+        ? startupErrors.join(' ')
+        : null,
   };
 }
 

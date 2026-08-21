@@ -6,9 +6,22 @@ let handlerPromise;
  * Loads the Express backend once during a Vercel cold start.
  */
 async function loadBackendHandler() {
-  const backend = await import('../backend/app.js');
+  let backend;
 
-  await backend.initializeBackend();
+  try {
+    backend = await import('../backend/app.js');
+  } catch (error) {
+    throw new Error('Backend module import failed.', { cause: error });
+  }
+
+  try {
+    await backend.initializeBackend();
+  } catch (error) {
+    throw new Error(
+      `Backend initialization failed: ${error.message}`,
+      { cause: error },
+    );
+  }
 
   return backend.default;
 }
@@ -59,12 +72,14 @@ function removePublicApiPrefix(req) {
  * /documents
  */
 module.exports = async function vercelHandler(req, res) {
+  let currentHandlerPromise;
+
   try {
     // Cache initialization during the current
     // Vercel serverless instance.
-    handlerPromise ||= loadBackendHandler();
+    currentHandlerPromise = handlerPromise ||= loadBackendHandler();
 
-    const handler = await handlerPromise;
+    const handler = await currentHandlerPromise;
 
     // Example:
     //
@@ -77,14 +92,16 @@ module.exports = async function vercelHandler(req, res) {
   } catch (error) {
     // Reset it so another invocation can retry
     // if the failure was temporary.
-    handlerPromise = undefined;
+    if (handlerPromise === currentHandlerPromise) {
+      handlerPromise = undefined;
+    }
 
     const errorId = randomBytes(8).toString('hex');
 
-    console.error(
-      `Failed to initialize backend application (${errorId}):`,
-      error?.message || error,
-    );
+    console.error('Failed to initialize backend application:', error);
+    console.error(`Backend initialization failure ID: ${errorId}`);
+
+    res.setHeader('Cache-Control', 'no-store');
 
     return res.status(503).json({
       success: false,
