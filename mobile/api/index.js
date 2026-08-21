@@ -1,4 +1,4 @@
-const { randomBytes } = require('crypto');
+import { randomBytes } from 'node:crypto';
 
 let handlerPromise;
 
@@ -71,7 +71,7 @@ function removePublicApiPrefix(req) {
  * /users
  * /documents
  */
-module.exports = async function vercelHandler(req, res) {
+export default async function vercelHandler(req, res) {
   let currentHandlerPromise;
 
   try {
@@ -109,4 +109,4 @@ module.exports = async function vercelHandler(req, res) {
       errorId,
     });
   }
-};
+}

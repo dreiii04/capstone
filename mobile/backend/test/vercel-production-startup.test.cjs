@@ -8,8 +8,6 @@ const mobileRoot = path.resolve(__dirname, '..', '..');
 test('Vercel startup reports missing core variables only in runtime logs', () => {
   const script = String.raw`
     const assert = require('node:assert/strict');
-    const handler = require('./api/index.js');
-
     function makeResponse() {
       return {
         headers: {},
@@ -28,6 +26,8 @@ test('Vercel startup reports missing core variables only in runtime logs', () =>
     }
 
     (async () => {
+      const { default: handler } = await import('./api/index.js');
+
       for (let attempt = 0; attempt < 2; attempt += 1) {
         const response = makeResponse();
         await handler({ url: '/api/health' }, response);

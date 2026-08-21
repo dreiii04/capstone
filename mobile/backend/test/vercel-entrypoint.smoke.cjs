@@ -5,10 +5,15 @@ process.env.DISABLE_DB = 'true';
 process.env.NODE_ENV = 'development';
 process.env.JWT_SECRET = 'deployment-import-test-key-32-bytes-minimum';
 
-const handler = require('../../api/index.js');
-const server = http.createServer(handler);
+async function main() {
+  const { default: handler } = await import('../../api/index.js');
+  const server = http.createServer(handler);
 
-server.listen(0, '127.0.0.1', async () => {
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+
   try {
     const { port } = server.address();
     for (const path of ['/health', '/api/health']) {
@@ -44,9 +49,15 @@ server.listen(0, '127.0.0.1', async () => {
 
     console.log('Vercel backend entrypoint smoke test passed.');
   } catch (error) {
-    console.error('Vercel backend entrypoint smoke test failed.');
-    process.exitCode = 1;
+    console.error('Vercel backend entrypoint smoke test failed:', error);
+    throw error;
   } finally {
-    server.close();
+    await new Promise((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
   }
+}
+
+main().catch(() => {
+  process.exitCode = 1;
 });
