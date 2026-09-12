@@ -1,4 +1,8 @@
-const privateUserFields = ['password', 'refreshTokens'];
+// The mobile backend stores bcrypt credentials in `passwordHash`, while the
+// web backend's Mongoose models historically used `password`. Records created
+// by either backend can be hydrated and returned by User Management, so both
+// credential field names must be stripped from every serialized user.
+const privateUserFields = ['password', 'passwordHash', 'refreshTokens'];
 
 function removePrivateUserFields(_document, value) {
   if (!value || typeof value !== 'object') return value;

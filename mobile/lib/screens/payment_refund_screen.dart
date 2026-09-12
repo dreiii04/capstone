@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import '../services/mongo_data_api_service.dart';
+import '../widgets/confirmation_dialog.dart';
 import '../widgets/simple_message_dialog.dart';
 import 'history_screen.dart';
 
@@ -78,6 +79,19 @@ class _PaymentRefundScreenState extends State<PaymentRefundScreen> {
       return;
     }
 
+    final docTitle =
+        widget.item.title.isNotEmpty ? widget.item.title : 'this document';
+    final confirmed = await showConfirmationDialog(
+      context,
+      title: 'Submit Refund Request',
+      message:
+          'Are you sure you want to submit a refund request for "$docTitle"? Please double check your account details.',
+      confirmLabel: 'Submit Refund',
+      cancelLabel: 'Review',
+      icon: Icons.receipt_long_outlined,
+    );
+    if (!confirmed || !mounted) return;
+
     setState(() => _isSubmitting = true);
     try {
       final requestRefund =
@@ -142,25 +156,20 @@ class _PaymentRefundScreenState extends State<PaymentRefundScreen> {
       ),
       body: SafeArea(
         top: false,
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final horizontalPadding = constraints.maxWidth >= 600 ? 32.0 : 16.0;
-            return SingleChildScrollView(
-              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-              padding: EdgeInsets.fromLTRB(
-                horizontalPadding,
-                24,
-                horizontalPadding,
-                32,
-              ),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 680),
-                  child: _submitted ? _buildSuccessState() : _buildRefundForm(),
-                ),
-              ),
-            );
-          },
+        child: SingleChildScrollView(
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          padding: EdgeInsets.fromLTRB(
+            MediaQuery.sizeOf(context).shortestSide >= 600 ? 32.0 : 16.0,
+            24,
+            MediaQuery.sizeOf(context).shortestSide >= 600 ? 32.0 : 16.0,
+            32,
+          ),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 680),
+              child: _submitted ? _buildSuccessState() : _buildRefundForm(),
+            ),
+          ),
         ),
       ),
     );

@@ -1,7 +1,7 @@
 name: capstone_project
 description: "A new Flutter project."
 publish_to: 'none'
-version: 0.1.0
+version: 1.0.0+5000
 
 environment:
   sdk: '>=3.1.0 <4.0.0'
@@ -16,6 +16,7 @@ dependencies:
   http: ^1.2.2
   http_parser: ^4.1.2
   flutter_secure_storage: ^10.3.1
+  cached_network_image: ^3.4.1
 
 dev_dependencies:
   flutter_test:

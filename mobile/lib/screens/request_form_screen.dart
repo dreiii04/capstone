@@ -6,6 +6,7 @@ import '../models/api_date_time.dart';
 import '../models/document_catalog.dart';
 import '../widgets/custom_font.dart';
 import '../services/mongo_data_api_service.dart';
+import '../widgets/confirmation_dialog.dart';
 import '../widgets/simple_message_dialog.dart';
 import '../widgets/request_progress_indicator.dart';
 
@@ -105,6 +106,17 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
         ? _otherPurposeController.text.trim()
         : _selectedPurpose!;
 
+    final confirmed = await showConfirmationDialog(
+      context,
+      title: 'Submit Request',
+      message:
+          'Are you sure you want to submit a request for "$finalDocName" for "$finalPurpose"?',
+      confirmLabel: 'Submit',
+      cancelLabel: 'Review',
+      icon: Icons.description_outlined,
+    );
+    if (!confirmed || !mounted) return;
+
     setState(() {
       _isSubmitting = true;
     });
@@ -154,6 +166,9 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
     final dateCreated = parseApiDateTime(requestMap['createdAt']);
     final displayStatus = statusRaw.trim().toLowerCase() == 'pending_completion'
         ? 'PENDING TO COMPLETE'
+    final displayStatus = statusRaw.trim().toLowerCase() == 'pending_completion' ||
+            statusRaw.trim().toLowerCase() == 'pending'
+        ? 'PENDING'
         : 'PENDING FOR PAYMENT';
 
     Navigator.push(
@@ -174,6 +189,41 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
     );
   }
 
+  bool get _hasEnteredData {
+    return _mainDocType != null ||
+        _selectedPurpose != null ||
+        _otherDocumentController.text.trim().isNotEmpty ||
+        _otherPurposeController.text.trim().isNotEmpty;
+  }
+
+  Future<bool> _confirmDiscard() async {
+    if (_isSubmitting || !_hasEnteredData) return true;
+    return await showConfirmationDialog(
+      context,
+      title: 'Discard Request?',
+      message:
+          'Are you sure you want to exit? Any entered information will be lost.',
+      confirmLabel: 'Discard',
+      cancelLabel: 'Keep editing',
+      isDestructive: true,
+      icon: Icons.warning_amber_rounded,
+    );
+  }
+
+  Future<void> _handleBack() async {
+    final shouldPop = await _confirmDiscard();
+    if (shouldPop && mounted) {
+      Navigator.maybePop(context);
+    }
+  }
+
+  Future<void> _handleCancel() async {
+    final shouldPop = await _confirmDiscard();
+    if (shouldPop && mounted) {
+      Navigator.of(context).popUntil((route) => route.isFirst);
+    }
+  }
+
   @override
   void dispose() {
     _otherDocumentController.dispose();
@@ -185,55 +235,61 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5), // Light grey background
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
-        elevation: 0,
-        centerTitle: true,
-        automaticallyImplyLeading: false,
-        leading: IconButton(
-          key: const Key('request_form_back_button'),
-          tooltip: 'Back to data consent',
-          onPressed: _isSubmitting ? null : () => Navigator.maybePop(context),
-          icon: const Icon(
-            Icons.arrow_back_rounded,
-            color: Color(0xFF233446),
-          ),
-        ),
-        title: Image.asset(
-          'assets/logo/logo.png',
-          width: 92.w,
-          height: 30.h,
-          fit: BoxFit.contain,
-        ),
-        actions: [
-          TextButton(
-            onPressed: _isSubmitting
-                ? null
-                : () =>
-                    Navigator.of(context).popUntil((route) => route.isFirst),
-            child: Text(
-              'Cancel',
-              style: TextStyle(
-                color: _isSubmitting
-                    ? const Color(0xFFAAB3B9)
-                    : const Color(0xFF356A94),
-                fontSize: 12.sp,
-                fontWeight: FontWeight.w700,
-              ),
+    return PopScope(
+      canPop: !_hasEnteredData && !_isSubmitting,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        final shouldPop = await _confirmDiscard();
+        if (shouldPop && context.mounted) {
+          Navigator.of(context).pop();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF5F5F5), // Light grey background
+        appBar: AppBar(
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.white,
+          elevation: 0,
+          centerTitle: true,
+          automaticallyImplyLeading: false,
+          leading: IconButton(
+            key: const Key('request_form_back_button'),
+            tooltip: 'Back to data consent',
+            onPressed: _isSubmitting ? null : _handleBack,
+            icon: const Icon(
+              Icons.arrow_back_rounded,
+              color: Color(0xFF233446),
             ),
           ),
-          SizedBox(width: 6.w),
-        ],
-        bottom: PreferredSize(
-          preferredSize: Size.fromHeight(47.h),
-          child: RequestProgressIndicator(
-            currentStep: _isSubmitting ? 2 : 1,
+          title: Image.asset(
+            'assets/logo/logo.png',
+            width: 92.w,
+            height: 30.h,
+            fit: BoxFit.contain,
+          ),
+          actions: [
+            TextButton(
+              onPressed: _isSubmitting ? null : _handleCancel,
+              child: Text(
+                'Cancel',
+                style: TextStyle(
+                  color: _isSubmitting
+                      ? const Color(0xFFAAB3B9)
+                      : const Color(0xFF356A94),
+                  fontSize: 12.sp,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            SizedBox(width: 6.w),
+          ],
+          bottom: PreferredSize(
+            preferredSize: Size.fromHeight(47.h),
+            child: RequestProgressIndicator(
+              currentStep: _isSubmitting ? 2 : 1,
+            ),
           ),
         ),
-      ),
       body: SingleChildScrollView(
         padding: EdgeInsets.all(25.w),
         child: Form(
@@ -352,6 +408,7 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
           ),
         ),
       ),
+      ),
     );
   }
 
@@ -378,12 +435,7 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(8.r),
-        boxShadow: [
-          BoxShadow(
-              color: Colors.black.withAlpha(13),
-              blurRadius: 5,
-              offset: const Offset(0, 2))
-        ],
+        border: Border.all(color: Colors.grey.shade300),
       ),
       child: DropdownButtonFormField<String>(
         initialValue: value,
@@ -429,61 +481,72 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(8.r),
-        boxShadow: [
-          BoxShadow(
-              color: Colors.black.withAlpha(13),
-              blurRadius: 5,
-              offset: const Offset(0, 2))
-        ],
+        border: Border.all(color: Colors.grey.shade300),
       ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: DataTable(
-          headingRowColor: WidgetStateProperty.all(const Color(0xFF5D7E97)),
-          headingTextStyle: TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-              fontSize: 12.sp),
-          dataRowMinHeight: 40.h,
-          dataRowMaxHeight: 40.h,
-          columnSpacing: 20.w,
-          columns: [
-            DataColumn(
-              label: Text('Document', style: TextStyle(fontSize: 12.sp)),
+      child: Table(
+        columnWidths: const {
+          0: FlexColumnWidth(3),
+          1: FlexColumnWidth(1),
+        },
+        children: [
+          TableRow(
+            decoration: const BoxDecoration(
+              color: Color(0xFF5D7E97),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
             ),
-            DataColumn(
-              label: Text('Price (₱)', style: TextStyle(fontSize: 12.sp)),
+            children: [
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
+                child: Text('Document',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12.sp)),
+              ),
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
+                child: Text('Price (₱)',
+                    textAlign: TextAlign.end,
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12.sp)),
+              ),
+            ],
+          ),
+          ...documentOptions.map(
+            (doc) => TableRow(
+              decoration: BoxDecoration(
+                border: Border(
+                  top: BorderSide(color: Colors.grey.shade200, width: 1),
+                ),
+              ),
+              children: [
+                Padding(
+                  padding: EdgeInsets.symmetric(
+                      horizontal: 12.w, vertical: 8.h),
+                  child: Text(
+                    doc.name,
+                    style: TextStyle(
+                        fontSize: 11.sp, color: Colors.black87),
+                  ),
+                ),
+                Padding(
+                  padding: EdgeInsets.symmetric(
+                      horizontal: 12.w, vertical: 8.h),
+                  child: Text(
+                    doc.price == 0 ? 'Varies' : doc.price.toStringAsFixed(2),
+                    textAlign: TextAlign.end,
+                    style: TextStyle(
+                        fontSize: 11.sp,
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFF233446)),
+                  ),
+                ),
+              ],
             ),
-          ],
-          rows: documentOptions
-              .map((doc) => DataRow(
-                    cells: [
-                      DataCell(
-                        SizedBox(
-                          width: 200.w,
-                          child: Text(
-                            doc.name,
-                            style: TextStyle(
-                                fontSize: 11.sp, color: Colors.black87),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ),
-                      DataCell(
-                        Text(
-                          doc.price == 0
-                              ? 'Varies'
-                              : doc.price.toStringAsFixed(2),
-                          style: TextStyle(
-                              fontSize: 11.sp,
-                              fontWeight: FontWeight.w600,
-                              color: const Color(0xFF233446)),
-                        ),
-                      ),
-                    ],
-                  ))
-              .toList(),
-        ),
+          ),
+        ],
       ),
     );
   }

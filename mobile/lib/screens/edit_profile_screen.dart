@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:capstone_project/models/profile_data.dart';
 import 'package:capstone_project/services/mongo_data_api_service.dart';
+import 'package:capstone_project/widgets/confirmation_dialog.dart';
 import 'package:capstone_project/widgets/profile_avatar.dart';
 import 'package:capstone_project/widgets/simple_message_dialog.dart';
 import 'package:flutter/material.dart';
@@ -191,68 +192,94 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     }
   }
 
+  Future<bool> _confirmDiscard() async {
+    if (!_hasChanges || _isSaving) return true;
+    return await showConfirmationDialog(
+      context,
+      title: 'Discard changes?',
+      message:
+          'You have unsaved changes. Are you sure you want to discard them and exit?',
+      confirmLabel: 'Discard',
+      cancelLabel: 'Keep editing',
+      isDestructive: true,
+      icon: Icons.warning_amber_rounded,
+    );
+  }
+
+  Future<void> _handleBack() async {
+    final shouldPop = await _confirmDiscard();
+    if (shouldPop && mounted) {
+      Navigator.maybePop(context);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
-    return Scaffold(
-      backgroundColor: _pageBackground,
-      appBar: AppBar(
-        backgroundColor: _primaryBlue,
-        foregroundColor: Colors.white,
-        elevation: 0,
-        centerTitle: true,
-        leading: IconButton(
-          key: const Key('edit_profile_back_button'),
-          tooltip: 'Back to profile',
-          onPressed: () => Navigator.maybePop(context),
-          icon: const Icon(Icons.arrow_back_rounded),
+    return PopScope(
+      canPop: !_hasChanges && !_isSaving,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        final shouldPop = await _confirmDiscard();
+        if (shouldPop && context.mounted) {
+          Navigator.of(context).pop();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: _pageBackground,
+        appBar: AppBar(
+          backgroundColor: _primaryBlue,
+          foregroundColor: Colors.white,
+          elevation: 0,
+          centerTitle: true,
+          leading: IconButton(
+            key: const Key('edit_profile_back_button'),
+            tooltip: 'Back to profile',
+            onPressed: _handleBack,
+            icon: const Icon(Icons.arrow_back_rounded),
+          ),
+          title: const Text(
+            'Edit profile',
+            style: TextStyle(fontWeight: FontWeight.w700),
+          ),
         ),
-        title: const Text(
-          'Edit profile',
-          style: TextStyle(fontWeight: FontWeight.w700),
-        ),
-      ),
       body: GestureDetector(
         onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
         child: SafeArea(
           top: false,
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final pagePadding = constraints.maxWidth >= 600 ? 32.0 : 16.0;
-              return Form(
-                key: _formKey,
-                autovalidateMode: AutovalidateMode.onUserInteraction,
-                child: SingleChildScrollView(
-                  keyboardDismissBehavior:
-                      ScrollViewKeyboardDismissBehavior.onDrag,
-                  padding: EdgeInsets.fromLTRB(
-                    pagePadding,
-                    24,
-                    pagePadding,
-                    bottomInset > 0 ? 24 : 112,
-                  ),
-                  child: Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 720),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          _buildProfilePhotoCard(),
-                          const SizedBox(height: 20),
-                          _buildPersonalInformationCard(),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            },
+          child: Form(
+            key: _formKey,
+            autovalidateMode: AutovalidateMode.onUserInteraction,
+            child: SingleChildScrollView(
+              keyboardDismissBehavior:
+                  ScrollViewKeyboardDismissBehavior.onDrag,
+              padding: EdgeInsets.fromLTRB(
+                MediaQuery.sizeOf(context).shortestSide >= 600 ? 32.0 : 16.0,
+                24,
+                MediaQuery.sizeOf(context).shortestSide >= 600 ? 32.0 : 16.0,
+                bottomInset > 0 ? 24 : 112,
+              ),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 720),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _buildProfilePhotoCard(),
+                  const SizedBox(height: 20),
+                  _buildPersonalInformationCard(),
+                ],
+              ),
+            ),
           ),
         ),
       ),
-      bottomNavigationBar: bottomInset > 0 ? null : _buildSaveBar(),
-    );
-  }
+    ),
+  ),
+  bottomNavigationBar: bottomInset > 0 ? null : _buildSaveBar(),
+),
+);
+}
 
   Widget _buildProfilePhotoCard() {
     final role = widget.profile.roleLabel;
@@ -507,13 +534,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: const Color(0xFFE2E8EC)),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x0A000000),
-            blurRadius: 16,
-            offset: Offset(0, 5),
-          ),
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -565,22 +585,18 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   Widget _buildResponsivePair(Widget first, Widget second) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        if (constraints.maxWidth < 540) {
-          return Column(
-            children: [first, const SizedBox(height: 14), second],
-          );
-        }
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(child: first),
-            const SizedBox(width: 14),
-            Expanded(child: second),
-          ],
-        );
-      },
+    if (MediaQuery.sizeOf(context).shortestSide < 600) {
+      return Column(
+        children: [first, const SizedBox(height: 14), second],
+      );
+    }
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(child: first),
+        const SizedBox(width: 14),
+        Expanded(child: second),
+      ],
     );
   }
 

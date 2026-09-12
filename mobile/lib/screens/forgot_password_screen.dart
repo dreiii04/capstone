@@ -239,54 +239,51 @@ class _PasswordScreenState extends State<PasswordScreen> {
                   topRight: Radius.circular(30),
                 ),
               ),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final horizontalPadding =
-                      constraints.maxWidth >= 600 ? 36.0 : 25.0;
-                  return SingleChildScrollView(
-                    keyboardDismissBehavior:
-                        ScrollViewKeyboardDismissBehavior.onDrag,
-                    padding: EdgeInsets.symmetric(
-                      horizontal: horizontalPadding,
-                      vertical: 30,
-                    ),
-                    child: Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 560),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            _buildHeader(),
-                            const SizedBox(height: 22),
-                            AnimatedSwitcher(
-                              duration: const Duration(milliseconds: 220),
-                              child: _codeSent
-                                  ? _buildOtpStep()
-                                  : _buildEmailStep(),
-                            ),
-                            const SizedBox(height: 12),
-                            TextButton(
-                              onPressed: _isBusy
-                                  ? null
-                                  : () => Navigator.pushNamedAndRemoveUntil(
-                                        context,
-                                        '/login',
-                                        (route) => false,
-                                      ),
-                              child: const Text(
-                                'Back to Login',
-                                style: TextStyle(
-                                  color: Color(0xFFF2F2F2),
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          ],
+              child: SingleChildScrollView(
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                padding: EdgeInsets.symmetric(
+                  horizontal:
+                      MediaQuery.sizeOf(context).shortestSide >= 600
+                          ? 36.0
+                          : 25.0,
+                  vertical: 30,
+                ),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 560),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _buildHeader(),
+                        const SizedBox(height: 22),
+                        AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 220),
+                          child: _codeSent
+                              ? _buildOtpStep()
+                              : _buildEmailStep(),
                         ),
-                      ),
+                        const SizedBox(height: 12),
+                        TextButton(
+                          onPressed: _isBusy
+                              ? null
+                              : () => Navigator.pushNamedAndRemoveUntil(
+                                    context,
+                                    '/login',
+                                    (route) => false,
+                                  ),
+                          child: const Text(
+                            'Back to Login',
+                            style: TextStyle(
+                              color: Color(0xFFF2F2F2),
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                  );
-                },
+                  ),
+                ),
               ),
             ),
           ),
@@ -733,27 +730,24 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                   topRight: Radius.circular(30),
                 ),
               ),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final horizontalPadding =
-                      constraints.maxWidth >= 600 ? 36.0 : 25.0;
-                  return AutofillGroup(
-                    child: SingleChildScrollView(
-                      keyboardDismissBehavior:
-                          ScrollViewKeyboardDismissBehavior.onDrag,
-                      padding: EdgeInsets.symmetric(
-                        horizontal: horizontalPadding,
-                        vertical: 30,
-                      ),
-                      child: Center(
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 560),
-                          child: _buildResetForm(password),
-                        ),
-                      ),
+              child: AutofillGroup(
+                child: SingleChildScrollView(
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
+                  padding: EdgeInsets.symmetric(
+                    horizontal:
+                        MediaQuery.sizeOf(context).shortestSide >= 600
+                            ? 36.0
+                            : 25.0,
+                    vertical: 30,
+                  ),
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 560),
+                      child: _buildResetForm(password),
                     ),
-                  );
-                },
+                  ),
+                ),
               ),
             ),
           ),

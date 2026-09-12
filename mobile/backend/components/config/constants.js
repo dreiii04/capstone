@@ -53,6 +53,7 @@ export const terminalWorkflowStatuses = new Set([
   'cancelled',
   'canceled',
   'refunded',
+  'claimed',
 ]);
 
 export const refundStatusAliases = new Map([

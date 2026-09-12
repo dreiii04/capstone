@@ -50,16 +50,52 @@ class _PendingScreenState extends State<PendingScreen> {
   static const Color _primaryBlue = Color(0xFF5D7E97);
   String _selectedFilter = 'All';
 
+  // Memoized lists to eliminate per-build allocations and sorting
+  late List<_TrackingEntry> _trackingEntries;
+  late List<String> _filters;
+  late List<_TrackingEntry> _filteredList;
+
+  @override
+  void initState() {
+    super.initState();
+    _rebuildLists();
+  }
+
+  void _rebuildLists() {
+    _trackingEntries = <_TrackingEntry>[
+      ...widget.requestList.map(_TrackingEntry.request),
+      ...widget.refundItems.map(_TrackingEntry.refund),
+    ]..sort((a, b) => b.dateCreated.compareTo(a.dateCreated));
+    _filters = <String>[
+      'All',
+      ..._trackingEntries.map((item) => item.docName).toSet(),
+    ];
+    _applyFilter();
+  }
+
+  void _applyFilter() {
+    _filteredList = _selectedFilter == 'All'
+        ? _trackingEntries
+        : _trackingEntries
+            .where((item) => item.docName == _selectedFilter)
+            .toList();
+  }
+
   bool get _hasError => widget.errorMessage?.trim().isNotEmpty == true;
 
   @override
   void didUpdateWidget(covariant PendingScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (_selectedFilter != 'All' &&
-        !widget.requestList
-            .any((request) => request.docName == _selectedFilter) &&
-        !widget.refundItems.any((item) => item.title == _selectedFilter)) {
-      _selectedFilter = 'All';
+    final dataChanged = !identical(oldWidget.requestList, widget.requestList) ||
+        !identical(oldWidget.refundItems, widget.refundItems);
+    if (dataChanged) {
+      if (_selectedFilter != 'All' &&
+          !widget.requestList
+              .any((request) => request.docName == _selectedFilter) &&
+          !widget.refundItems.any((item) => item.title == _selectedFilter)) {
+        _selectedFilter = 'All';
+      }
+      _rebuildLists();
     }
   }
 
@@ -82,145 +118,128 @@ class _PendingScreenState extends State<PendingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final trackingEntries = <_TrackingEntry>[
-      ...widget.requestList.map(_TrackingEntry.request),
-      ...widget.refundItems.map(_TrackingEntry.refund),
-    ]..sort((a, b) => b.dateCreated.compareTo(a.dateCreated));
-    final filters = <String>[
-      'All',
-      ...trackingEntries.map((item) => item.docName).toSet(),
-    ];
-    final filteredList = _selectedFilter == 'All'
-        ? trackingEntries
-        : trackingEntries
-            .where((item) => item.docName == _selectedFilter)
-            .toList();
+    final isTablet = MediaQuery.sizeOf(context).shortestSide >= 600;
+    final horizontalPadding = isTablet ? 32.0 : 14.0;
 
-    return LayoutBuilder(
-      builder: (context, viewport) {
-        final isTablet = viewport.maxWidth >= 600;
-        final horizontalPadding = isTablet ? 32.0 : 14.0;
-
-        return Scaffold(
-          backgroundColor: const Color(0xFFF8F9FA),
-          body: Column(
-            children: [
-              Container(
-                width: double.infinity,
-                color: _primaryBlue,
-                child: SafeArea(
-                  bottom: false,
-                  child: SizedBox(height: isTablet ? 48 : 40),
-                ),
-              ),
-              Expanded(
-                child: Align(
-                  alignment: Alignment.topCenter,
-                  child: ConstrainedBox(
-                    constraints:
-                        const BoxConstraints(maxWidth: _maxContentWidth),
-                    child: Padding(
-                      padding:
-                          EdgeInsets.symmetric(horizontal: horizontalPadding),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8F9FA),
+      body: Column(
+        children: [
+          Container(
+            width: double.infinity,
+            color: _primaryBlue,
+            child: SafeArea(
+              bottom: false,
+              child: SizedBox(height: isTablet ? 48 : 40),
+            ),
+          ),
+          Expanded(
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: _maxContentWidth),
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(height: isTablet ? 26 : 18),
+                      Row(
                         children: [
-                          SizedBox(height: isTablet ? 26 : 18),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  'Tracking',
-                                  style: TextStyle(
-                                    color: const Color(0xFF1F252A),
-                                    fontSize: isTablet ? 36 : 30,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                              _buildRefreshButton(isTablet),
-                            ],
-                          ),
-                          SizedBox(height: isTablet ? 18 : 12),
-                          DropdownButtonFormField<String>(
-                            key: const Key('pending_filter'),
-                            initialValue: _selectedFilter,
-                            isExpanded: true,
-                            icon: const Icon(Icons.keyboard_arrow_down_rounded),
-                            decoration: InputDecoration(
-                              labelText: 'Filter by document',
-                              filled: true,
-                              fillColor: Colors.white,
-                              contentPadding: EdgeInsets.symmetric(
-                                horizontal: isTablet ? 20 : 15,
-                                vertical: isTablet ? 17 : 13,
-                              ),
-                              enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(
-                                  color: Color(0xFFE0E4E7),
-                                ),
-                              ),
-                              focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(
-                                  color: Color(0xFF5A819B),
-                                  width: 1.5,
-                                ),
-                              ),
-                            ),
-                            items: filters
-                                .map(
-                                  (value) => DropdownMenuItem<String>(
-                                    value: value,
-                                    child: Text(
-                                      value,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        fontSize: isTablet ? 17 : 15,
-                                      ),
-                                    ),
-                                  ),
-                                )
-                                .toList(),
-                            onChanged: (value) {
-                              if (value == null) return;
-                              setState(() => _selectedFilter = value);
-                            },
-                          ),
-                          if (_hasError && widget.requestList.isNotEmpty) ...[
-                            SizedBox(height: isTablet ? 14 : 10),
-                            _buildErrorBanner(isTablet),
-                          ],
-                          if (widget.isLoading &&
-                              widget.requestList.isNotEmpty) ...[
-                            SizedBox(height: isTablet ? 14 : 10),
-                            const LinearProgressIndicator(
-                              key: Key('pending_refresh_progress'),
-                              color: _primaryBlue,
-                              backgroundColor: Color(0xFFDDE7ED),
-                            ),
-                          ],
-                          SizedBox(height: isTablet ? 20 : 14),
                           Expanded(
-                            child: RefreshIndicator(
-                              key: const Key('pending_refresh_indicator'),
-                              color: _primaryBlue,
-                              onRefresh: _refresh,
-                              child: _buildBody(filteredList, isTablet),
+                            child: Text(
+                              'Tracking',
+                              style: TextStyle(
+                                color: const Color(0xFF1F252A),
+                                fontSize: isTablet ? 36 : 30,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                           ),
+                          _buildRefreshButton(isTablet),
                         ],
                       ),
-                    ),
+                      SizedBox(height: isTablet ? 18 : 12),
+                      DropdownButtonFormField<String>(
+                        key: const Key('pending_filter'),
+                        initialValue: _selectedFilter,
+                        isExpanded: true,
+                        icon: const Icon(Icons.keyboard_arrow_down_rounded),
+                        decoration: InputDecoration(
+                          labelText: 'Filter by document',
+                          filled: true,
+                          fillColor: Colors.white,
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: isTablet ? 20 : 15,
+                            vertical: isTablet ? 17 : 13,
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(
+                              color: Color(0xFFE0E4E7),
+                            ),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(
+                              color: Color(0xFF5A819B),
+                              width: 1.5,
+                            ),
+                          ),
+                        ),
+                        items: _filters
+                            .map(
+                              (value) => DropdownMenuItem<String>(
+                                value: value,
+                                child: Text(
+                                  value,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: isTablet ? 17 : 15,
+                                  ),
+                                ),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (value) {
+                          if (value == null) return;
+                          setState(() {
+                            _selectedFilter = value;
+                            _applyFilter();
+                          });
+                        },
+                      ),
+                      if (_hasError && widget.requestList.isNotEmpty) ...[
+                        SizedBox(height: isTablet ? 14 : 10),
+                        _buildErrorBanner(isTablet),
+                      ],
+                      if (widget.isLoading &&
+                          widget.requestList.isNotEmpty) ...[
+                        SizedBox(height: isTablet ? 14 : 10),
+                        const LinearProgressIndicator(
+                          key: Key('pending_refresh_progress'),
+                          color: _primaryBlue,
+                          backgroundColor: Color(0xFFDDE7ED),
+                        ),
+                      ],
+                      SizedBox(height: isTablet ? 20 : 14),
+                      Expanded(
+                        child: RefreshIndicator(
+                          key: const Key('pending_refresh_indicator'),
+                          color: _primaryBlue,
+                          onRefresh: _refresh,
+                          child: _buildBody(_filteredList, isTablet),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
-            ],
+            ),
           ),
-        );
-      },
+        ],
+      ),
     );
   }
 
@@ -292,7 +311,10 @@ class _PendingScreenState extends State<PendingScreen> {
         action: filtered
             ? OutlinedButton(
                 key: const Key('pending_clear_filter_button'),
-                onPressed: () => setState(() => _selectedFilter = 'All'),
+                onPressed: () => setState(() {
+                  _selectedFilter = 'All';
+                  _applyFilter();
+                }),
                 child: const Text('Show all requests'),
               )
             : _buildRetryButton('Refresh'),
@@ -302,15 +324,18 @@ class _PendingScreenState extends State<PendingScreen> {
     return ListView.separated(
       key: const Key('pending_request_list'),
       physics: const AlwaysScrollableScrollPhysics(),
+      cacheExtent: 250,
       padding: EdgeInsets.only(bottom: isTablet ? 32 : 22),
       itemCount: filteredList.length,
       separatorBuilder: (_, __) => SizedBox(height: isTablet ? 16 : 12),
       itemBuilder: (context, index) {
         final item = filteredList[index];
-        return _buildCard(
-          item,
-          isTablet: isTablet,
-          onTap: () => _openDetails(item),
+        return RepaintBoundary(
+          child: _buildCard(
+            item,
+            isTablet: isTablet,
+            onTap: () => _openDetails(item),
+          ),
         );
       },
     );
@@ -481,48 +506,26 @@ class _PendingScreenState extends State<PendingScreen> {
     return Material(
       color: Colors.white,
       borderRadius: BorderRadius.circular(isTablet ? 16 : 13),
-      clipBehavior: Clip.antiAlias,
       child: InkWell(
+        borderRadius: BorderRadius.circular(isTablet ? 16 : 13),
         onTap: onTap,
         child: Container(
           width: double.infinity,
           padding: EdgeInsets.symmetric(
             horizontal: isTablet ? 24 : 16,
-            vertical: isTablet ? 22 : 17,
+            vertical: isTablet ? 20 : 16,
           ),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(isTablet ? 16 : 13),
             border: Border.all(color: const Color(0xFFEDF0F2)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withAlpha(10),
-                blurRadius: 12,
-                offset: const Offset(0, 5),
-              ),
-            ],
           ),
-          child: LayoutBuilder(
-            builder: (context, card) {
-              if (card.maxWidth < 340) {
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    information,
-                    const SizedBox(height: 13),
-                    statusBadge,
-                  ],
-                );
-              }
-
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Expanded(child: information),
-                  SizedBox(width: isTablet ? 24 : 12),
-                  Flexible(child: statusBadge),
-                ],
-              );
-            },
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(child: information),
+              SizedBox(width: isTablet ? 20 : 12),
+              statusBadge,
+            ],
           ),
         ),
       ),
@@ -540,11 +543,18 @@ class _PendingScreenState extends State<PendingScreen> {
         return const Color(0xFF356A86);
       case 'PENDING FOR PAYMENT':
         return const Color(0xFFC67500);
+      case 'PENDING':
       case 'PENDING TO COMPLETE':
         return Colors.blueGrey;
+        return const Color(0xFF356A86);
+      case 'READY TO CLAIM':
       case 'RELEASED':
         return Colors.orange;
+        return const Color(0xFF2E7D32);
+      case 'CLAIMED':
+        return const Color(0xFF2E7D32);
       case 'PROCESSING':
+      case 'IN PROCESS':
         return const Color(0xFF218739);
       case 'APPROVED':
         return const Color(0xFF246BCE);

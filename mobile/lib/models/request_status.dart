@@ -10,12 +10,18 @@ String displayRequestStatus(
       normalized == 'pending_payment' ||
       normalized == 'pending_for_payment') {
     return hasSubmittedPayment ? 'PENDING TO COMPLETE' : 'PENDING FOR PAYMENT';
+    return hasSubmittedPayment ? 'PENDING' : 'PENDING FOR PAYMENT';
   }
   if (normalized == 'pending_completion' ||
       normalized == 'pending_to_complete' ||
       normalized == 'pending_verification') {
     return 'PENDING TO COMPLETE';
+    return 'PENDING';
   }
+  if (normalized == 'released' || normalized == 'ready_to_claim') {
+    return 'READY TO CLAIM';
+  }
+  if (normalized == 'claimed') return 'CLAIMED';
   if (normalized == 'complete') return 'COMPLETED';
   if (normalized == 'declined' || normalized == 'denied') return 'REJECTED';
   if (normalized == 'canceled') return 'CANCELLED';

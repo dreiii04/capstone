@@ -3,6 +3,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../constants.dart';
 import '../models/notification_item.dart';
 import '../services/mongo_data_api_service.dart';
+import '../widgets/confirmation_dialog.dart';
 
 typedef MarkNotificationRead = Future<void> Function(String notificationId);
 typedef MarkAllNotificationsRead = Future<void> Function();
@@ -31,6 +32,35 @@ class _NotificationScreenState extends State<NotificationScreen> {
   final Set<String> _updatingIds = {};
   bool _isMarkingAll = false;
 
+  // Memoized sorted+filtered list. Rebuilt only inside setState() blocks so
+  // build() never allocates a new list or runs a sort on every frame.
+  late List<NotificationItem> _filteredNotifications;
+
+  @override
+  void initState() {
+    super.initState();
+    _filteredNotifications = _buildFilteredList();
+  }
+
+  @override
+  void didUpdateWidget(covariant NotificationScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.notifications, widget.notifications)) {
+      _filteredNotifications = _buildFilteredList();
+    }
+  }
+
+  List<NotificationItem> _buildFilteredList() {
+    final filtered = _filterType == 'unread'
+        ? widget.notifications.where((item) => !item.isRead).toList()
+        : List<NotificationItem>.from(widget.notifications);
+    filtered.sort((a, b) {
+      final byDate = b.createdAt.compareTo(a.createdAt);
+      return byDate != 0 ? byDate : b.id.compareTo(a.id);
+    });
+    return filtered;
+  }
+
   Future<void> _markAsRead(NotificationItem notification) async {
     if (notification.isRead || _updatingIds.contains(notification.id)) return;
     setState(() => _updatingIds.add(notification.id));
@@ -38,7 +68,10 @@ class _NotificationScreenState extends State<NotificationScreen> {
       await (widget.onMarkRead ??
           MongoDataApiService.instance.markNotificationRead)(notification.id);
       if (!mounted) return;
-      setState(() => notification.isRead = true);
+      setState(() {
+        notification.isRead = true;
+        _filteredNotifications = _buildFilteredList();
+      });
     } catch (error) {
       if (!mounted) return;
       _showError(error, 'Could not mark this notification as read.');
@@ -51,6 +84,18 @@ class _NotificationScreenState extends State<NotificationScreen> {
     if (_isMarkingAll || !widget.notifications.any((item) => !item.isRead)) {
       return;
     }
+
+    final confirmed = await showConfirmationDialog(
+      context,
+      title: 'Mark all as read?',
+      message:
+          'Are you sure you want to mark all unread notifications as read?',
+      confirmLabel: 'Mark all as read',
+      cancelLabel: 'Cancel',
+      icon: Icons.done_all_rounded,
+    );
+    if (!confirmed || !mounted) return;
+
     setState(() => _isMarkingAll = true);
     try {
       await (widget.onMarkAllRead ??
@@ -60,6 +105,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
         for (final notification in widget.notifications) {
           notification.isRead = true;
         }
+        _filteredNotifications = _buildFilteredList();
       });
     } catch (error) {
       if (!mounted) return;
@@ -71,12 +117,30 @@ class _NotificationScreenState extends State<NotificationScreen> {
 
   Future<void> _dismissNotification(NotificationItem notification) async {
     if (_updatingIds.contains(notification.id)) return;
+
+    final itemTitle = notification.title.trim().isNotEmpty
+        ? notification.title.trim()
+        : 'this notification';
+    final confirmed = await showConfirmationDialog(
+      context,
+      title: 'Dismiss Notification?',
+      message: 'Are you sure you want to dismiss "$itemTitle"?',
+      confirmLabel: 'Dismiss',
+      cancelLabel: 'Cancel',
+      isDestructive: true,
+      icon: Icons.notifications_off_outlined,
+    );
+    if (!confirmed || !mounted) return;
+
     setState(() => _updatingIds.add(notification.id));
     try {
       await (widget.onDismiss ??
           MongoDataApiService.instance.dismissNotification)(notification.id);
       if (!mounted) return;
-      setState(() => widget.notifications.remove(notification));
+      setState(() {
+        widget.notifications.remove(notification);
+        _filteredNotifications = _buildFilteredList();
+      });
     } catch (error) {
       if (!mounted) return;
       _showError(error, 'Could not dismiss this notification.');
@@ -92,21 +156,16 @@ class _NotificationScreenState extends State<NotificationScreen> {
     );
   }
 
-  List<NotificationItem> _getFilteredNotifications() {
-    final filtered = _filterType == 'unread'
-        ? widget.notifications.where((item) => !item.isRead).toList()
-        : widget.notifications.toList();
-    filtered.sort((a, b) {
-      final byDate = b.createdAt.compareTo(a.createdAt);
-      return byDate != 0 ? byDate : b.id.compareTo(a.id);
+  void _setFilter(String type) {
+    if (_filterType == type) return;
+    setState(() {
+      _filterType = type;
+      _filteredNotifications = _buildFilteredList();
     });
-    return filtered;
   }
 
   @override
   Widget build(BuildContext context) {
-    final filteredNotifications = _getFilteredNotifications();
-
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -156,29 +215,21 @@ class _NotificationScreenState extends State<NotificationScreen> {
                 FilterTab(
                   label: 'All',
                   isActive: _filterType == 'all',
-                  onTap: () {
-                    setState(() {
-                      _filterType = 'all';
-                    });
-                  },
+                  onTap: () => _setFilter('all'),
                 ),
                 SizedBox(width: 12.w),
                 FilterTab(
                   label: 'Unread',
                   isActive: _filterType == 'unread',
-                  onTap: () {
-                    setState(() {
-                      _filterType = 'unread';
-                    });
-                  },
+                  onTap: () => _setFilter('unread'),
                 ),
               ],
             ),
           ),
           SizedBox(height: 16.h),
-          // Notification List
+          // Notification List — uses the pre-sorted memoized list
           Expanded(
-            child: filteredNotifications.isEmpty
+            child: _filteredNotifications.isEmpty
                 ? Center(
                     child: Text(
                       _filterType == 'unread'
@@ -189,18 +240,21 @@ class _NotificationScreenState extends State<NotificationScreen> {
                     ),
                   )
                 : ListView.separated(
+                    cacheExtent: 350,
                     padding:
                         EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
-                    itemCount: filteredNotifications.length,
+                    itemCount: _filteredNotifications.length,
                     separatorBuilder: (_, __) => SizedBox(height: 12.h),
                     itemBuilder: (context, index) {
-                      final item = filteredNotifications[index];
-                      return NotificationItemCard(
-                        key: Key('notification_${item.id}'),
-                        item: item,
-                        isUpdating: _updatingIds.contains(item.id),
-                        onTap: () => _markAsRead(item),
-                        onDismiss: () => _dismissNotification(item),
+                      final item = _filteredNotifications[index];
+                      return RepaintBoundary(
+                        child: NotificationItemCard(
+                          key: Key('notification_${item.id}'),
+                          item: item,
+                          isUpdating: _updatingIds.contains(item.id),
+                          onTap: () => _markAsRead(item),
+                          onDismiss: () => _dismissNotification(item),
+                        ),
                       );
                     },
                   ),
@@ -212,16 +266,16 @@ class _NotificationScreenState extends State<NotificationScreen> {
 }
 
 class FilterTab extends StatelessWidget {
-  final String label;
-  final bool isActive;
-  final VoidCallback onTap;
-
   const FilterTab({
     super.key,
     required this.label,
     required this.isActive,
     required this.onTap,
   });
+
+  final String label;
+  final bool isActive;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -250,11 +304,6 @@ class FilterTab extends StatelessWidget {
 }
 
 class NotificationItemCard extends StatelessWidget {
-  final NotificationItem item;
-  final bool isUpdating;
-  final VoidCallback onTap;
-  final VoidCallback onDismiss;
-
   const NotificationItemCard({
     super.key,
     required this.item,
@@ -262,6 +311,11 @@ class NotificationItemCard extends StatelessWidget {
     required this.onTap,
     required this.onDismiss,
   });
+
+  final NotificationItem item;
+  final bool isUpdating;
+  final VoidCallback onTap;
+  final VoidCallback onDismiss;
 
   @override
   Widget build(BuildContext context) {

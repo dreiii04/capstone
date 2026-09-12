@@ -2,13 +2,21 @@ import 'package:capstone_project/models/profile_data.dart';
 import 'package:capstone_project/screens/change_password_screen.dart';
 import 'package:capstone_project/screens/edit_profile_screen.dart';
 import 'package:capstone_project/services/mongo_data_api_service.dart';
+import 'package:capstone_project/widgets/confirmation_dialog.dart';
 import 'package:capstone_project/widgets/profile_avatar.dart';
 import 'package:capstone_project/widgets/simple_message_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key, this.onBack, this.onProfileChanged});
+  const ProfileScreen({
+    super.key,
+    this.initialProfile,
+    this.onBack,
+    this.onProfileChanged,
+  });
+
+  final ProfileData? initialProfile;
 
   /// Used when this screen is hosted inside a tab/page shell. When omitted,
   /// the back button falls back to the current Navigator.
@@ -21,13 +29,28 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   ProfileData? _profile;
-  bool _isLoading = true;
+  bool _isLoading = false;
   String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
-    _loadProfile();
+    _profile = widget.initialProfile;
+    if (_profile == null && widget.onProfileChanged == null) {
+      _loadProfile();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant ProfileScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialProfile != null &&
+        widget.initialProfile != oldWidget.initialProfile) {
+      setState(() {
+        _profile = widget.initialProfile;
+        _isLoading = false;
+      });
+    }
   }
 
   Future<void> _loadProfile() async {
@@ -41,6 +64,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (!mounted) return;
       setState(() {
         _profile = profile;
+        _isLoading = false;
+        _errorMessage = null;
       });
       widget.onProfileChanged?.call(profile);
     } catch (error) {
@@ -50,15 +75,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
         error.toString().replaceFirst('Exception: ', ''),
         title: 'Profile failed',
       );
+      if (!mounted) return;
       setState(() {
         _errorMessage = 'Unable to load profile.';
+        _isLoading = false;
       });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
     }
   }
 
@@ -334,7 +355,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
             // Log out Button
             ElevatedButton(
+              key: const Key('profile_logout_button'),
               onPressed: () async {
+                final confirmed = await showConfirmationDialog(
+                  context,
+                  title: 'Log out',
+                  message: 'Are you sure you want to log out of your account?',
+                  confirmLabel: 'Log out',
+                  cancelLabel: 'Cancel',
+                  icon: Icons.logout_rounded,
+                  isDestructive: true,
+                );
+                if (!confirmed || !context.mounted) return;
                 await MongoDataApiService.instance.logout();
                 if (!context.mounted) return;
                 Navigator.of(context)

@@ -65,32 +65,47 @@ class _HistoryDetailScreenState extends State<HistoryDetailScreen> {
       ),
       body: SafeArea(
         top: false,
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final horizontalPadding = constraints.maxWidth >= 600 ? 32.0 : 16.0;
-            return SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(
-                horizontalPadding,
-                24,
-                horizontalPadding,
-                32,
-              ),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 720),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _buildCard(
+        child: SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(
+            MediaQuery.sizeOf(context).shortestSide >= 600 ? 32.0 : 16.0,
+            24,
+            MediaQuery.sizeOf(context).shortestSide >= 600 ? 32.0 : 16.0,
+            32,
+          ),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 720),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _buildCard(
                         title: 'Request information',
                         icon: Icons.description_outlined,
                         children: [
+                          if (item.requestId.isNotEmpty)
+                            _row('Request ID', item.requestId),
                           _row('Document', item.title),
                           _row('Purpose', item.purpose),
                           _row(
                             'Date requested',
                             DateFormat('MMM d, y').format(item.date),
+                            DateFormat('MMM d, y  h:mm a').format(item.date),
                           ),
+                          if (item.datePaid != null)
+                            _row(
+                              'Date paid',
+                              DateFormat('MMM d, y  h:mm a').format(item.datePaid!),
+                            ),
+                          if (item.dateProcessed != null)
+                            _row(
+                              'Date processed',
+                              DateFormat('MMM d, y  h:mm a').format(item.dateProcessed!),
+                            ),
+                          if (item.dateClaimed != null)
+                            _row(
+                              'Date claimed',
+                              DateFormat('MMM d, y  h:mm a').format(item.dateClaimed!),
+                            ),
                         ],
                       ),
                       const SizedBox(height: 16),
@@ -161,11 +176,9 @@ class _HistoryDetailScreenState extends State<HistoryDetailScreen> {
                   ),
                 ),
               ),
-            );
-          },
-        ),
-      ),
-    );
+            ),
+          ),
+        );
   }
 
   Widget _buildStatusCard() {
@@ -178,6 +191,16 @@ class _HistoryDetailScreenState extends State<HistoryDetailScreen> {
             : item.canRequestRefund
                 ? 'This request was rejected after payment was received. You can request a refund below.'
                 : 'This request was rejected. Review the office remarks below for more information.';
+    final isClaimed = item.status.trim().toUpperCase() == 'CLAIMED';
+    final message = isClaimed
+        ? 'This document has been successfully claimed.'
+        : item.isApproved
+            ? "This document has been processed and released by the Registrar's Office."
+            : item.hasRefundRequest
+                ? 'This request was rejected. See the latest refund update below.'
+                : item.canRequestRefund
+                    ? 'This request was rejected after payment was received. You can request a refund below.'
+                    : 'This request was rejected. Review the office remarks below for more information.';
 
     return _buildCard(
       title: 'Final status',

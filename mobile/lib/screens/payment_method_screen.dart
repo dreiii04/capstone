@@ -104,6 +104,7 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
         purpose: widget.request.purpose,
         dateCreated: widget.request.dateCreated,
         status: 'PENDING TO COMPLETE',
+        status: 'PENDING',
         documentPrice: widget.request.documentPrice,
         totalAmount: widget.request.totalAmount,
       );
@@ -251,14 +252,7 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12.r),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withAlpha(13),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          )
-        ],
-        border: Border.all(color: Colors.grey.shade100),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

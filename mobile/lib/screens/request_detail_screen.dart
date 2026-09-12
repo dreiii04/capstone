@@ -8,14 +8,89 @@ import '../screens/pending_screen.dart';
 import '../models/request_status.dart';
 
 class RequestDetailsScreen extends StatelessWidget {
+import '../services/mongo_data_api_service.dart';
+
+class RequestDetailsScreen extends StatefulWidget {
   final PendingRequest request;
   const RequestDetailsScreen({super.key, required this.request});
 
+  @override
+  State<RequestDetailsScreen> createState() => _RequestDetailsScreenState();
+}
+
+class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
+  bool _isClaiming = false;
+
   String _amountLabel(double value) => 'PHP ${value.toStringAsFixed(2)}';
+
+  Future<void> _handleClaim() async {
+    final requestId = widget.request.requestId?.trim() ?? '';
+    if (requestId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Missing Request ID. Please refresh and try again.'),
+        ),
+      );
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Claim Document'),
+        content: Text(
+          'Have you received your ${widget.request.docName}? This will confirm receipt and move the request to History.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF2E7D32),
+            ),
+            child: const Text(
+              'Confirm Claim',
+              style: TextStyle(color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _isClaiming = true);
+    try {
+      await MongoDataApiService.instance.claimRequest(requestId: requestId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Document claimed successfully! Moved to History.'),
+          backgroundColor: Color(0xFF2E7D32),
+        ),
+      );
+      Navigator.pop(context, true);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isClaiming = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            e.toString().replaceFirst(RegExp(r'^Exception:\s*'), ''),
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final request = this.request;
+    final request = widget.request;
     final statusUpper = request.status.toUpperCase();
     final needsPayment = requestNeedsPayment(request.status);
     final canPay = needsPayment && request.totalAmount > 0;
@@ -25,6 +100,46 @@ class RequestDetailsScreen extends StatelessWidget {
         : pendingCompletion
             ? "Payment received. Your request is pending completion."
             : "Your request is being processed.";
+    final isReadyToClaim =
+        statusUpper == 'READY TO CLAIM' || statusUpper == 'RELEASED';
+    final isClaimed = statusUpper == 'CLAIMED';
+    final isProcessing =
+        statusUpper == 'PROCESSING' || statusUpper == 'IN PROCESS';
+    final isPending =
+        statusUpper == 'PENDING' || statusUpper == 'PENDING TO COMPLETE';
+
+    final String statusNote;
+    if (needsPayment) {
+      statusNote =
+          "Payment is required to continue processing your request. Please complete your payment to proceed.";
+    } else if (isReadyToClaim) {
+      statusNote = "Your document is ready to claim! Tap below to confirm receipt.";
+      statusNote =
+          "Your document is ready for pickup/claim! Please proceed to the Registrar's Office to claim your document.";
+    } else if (isClaimed) {
+      statusNote = "Document claimed.";
+      statusNote = "This document has been claimed.";
+    } else if (isProcessing) {
+      statusNote = "Your request is being processed.";
+    } else if (isPending) {
+      statusNote = "Payment received. Your request is pending processing.";
+    } else {
+      statusNote = "Your request is being processed.";
+    }
+
+    Color badgeBgColor = Colors.yellow.shade100;
+    Color badgeTextColor = Colors.yellow.shade800;
+    if (isReadyToClaim || isClaimed) {
+      badgeBgColor = const Color(0xFFD4EDDA);
+      badgeTextColor = const Color(0xFF155724);
+    } else if (isProcessing) {
+      badgeBgColor = const Color(0xFFE8F5E9);
+      badgeTextColor = const Color(0xFF2E7D32);
+    } else if (isPending) {
+      badgeBgColor = const Color(0xFFDDEAF2);
+      badgeTextColor = const Color(0xFF356A86);
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),
       appBar: AppBar(
@@ -47,6 +162,8 @@ class RequestDetailsScreen extends StatelessWidget {
         child: Column(
           children: [
             _buildSectionCard("Document Details", [
+              if (request.requestId != null && request.requestId!.isNotEmpty)
+                _buildInfoRow("Request ID:", request.requestId!),
               _buildInfoRow("Type of Document:", request.docName),
               _buildInfoRow("Purpose of Request:", request.purpose),
               _buildInfoRow("Date Requested:",
@@ -68,6 +185,16 @@ class RequestDetailsScreen extends StatelessWidget {
                     style: TextStyle(
                         color: Colors.yellow.shade800,
                         fontWeight: FontWeight.bold)),
+                  color: badgeBgColor,
+                  borderRadius: BorderRadius.circular(5.r),
+                ),
+                child: Text(
+                  request.status,
+                  style: TextStyle(
+                    color: badgeTextColor,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
               SizedBox(height: 10.h),
               Text(
@@ -118,6 +245,34 @@ class RequestDetailsScreen extends StatelessWidget {
                         fontSize: 14.sp),
                   ),
                 ),
+              if (isReadyToClaim)
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: ElevatedButton.icon(
+                    key: const Key('claim_document_button'),
+                    onPressed: _isClaiming ? null : _handleClaim,
+                    icon: _isClaiming
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.check_circle_outline, color: Colors.white),
+                    label: CustomFont(
+                      text: _isClaiming ? "Claiming..." : "Claim Document",
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14.sp,
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF2E7D32),
+                      padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 10.h),
+                    ),
+                  ),
+                ),
             ]),
           ],
         ),
@@ -132,7 +287,7 @@ class RequestDetailsScreen extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(10.r),
-        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 5)],
+        border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

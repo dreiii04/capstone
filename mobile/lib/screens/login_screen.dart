@@ -126,27 +126,24 @@ class _LogInScreenState extends State<LogInScreen> {
                   topRight: Radius.circular(30),
                 ),
               ),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final horizontalPadding =
-                      constraints.maxWidth >= 600 ? 36.0 : 30.0;
-                  return AutofillGroup(
-                    child: SingleChildScrollView(
-                      keyboardDismissBehavior:
-                          ScrollViewKeyboardDismissBehavior.onDrag,
-                      padding: EdgeInsets.symmetric(
-                        horizontal: horizontalPadding,
-                        vertical: 30,
-                      ),
-                      child: Center(
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 520),
-                          child: _buildLoginForm(),
-                        ),
-                      ),
+              child: AutofillGroup(
+                child: SingleChildScrollView(
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
+                  padding: EdgeInsets.symmetric(
+                    horizontal:
+                        MediaQuery.sizeOf(context).shortestSide >= 600
+                            ? 36.0
+                            : 30.0,
+                    vertical: 30,
+                  ),
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 520),
+                      child: _buildLoginForm(),
                     ),
-                  );
-                },
+                  ),
+                ),
               ),
             ),
           ),
@@ -158,7 +155,7 @@ class _LogInScreenState extends State<LogInScreen> {
   Widget _buildLoginForm() {
     return Form(
       key: _formKey,
-      autovalidateMode: AutovalidateMode.onUserInteraction,
+      autovalidateMode: AutovalidateMode.disabled,
       child: Column(
         children: [
           const Text(

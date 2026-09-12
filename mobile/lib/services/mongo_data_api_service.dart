@@ -842,6 +842,34 @@ class MongoDataApiService {
     throw Exception(_messageFor(response.data, 'Failed to load requests.'));
   }
 
+  Future<Map<String, dynamic>> claimRequest({
+    required String requestId,
+  }) async {
+    if (_accessToken == null) {
+      throw Exception('Not authenticated.');
+    }
+    final normalizedId = requestId.trim();
+    if (normalizedId.isEmpty) {
+      throw Exception('A valid request ID is required to claim the document.');
+    }
+
+    final response = await _postJson(
+      '/requests/${Uri.encodeComponent(normalizedId)}/claim',
+      {},
+      withAuth: true,
+    );
+
+    if (response.statusCode == 200) {
+      final request = apiObject(response.data, key: 'request');
+      return {
+        'success': true,
+        if (request != null) 'request': normalizeRequestRecord(request),
+      };
+    }
+
+    throw Exception(_messageFor(response.data, 'Failed to claim document.'));
+  }
+
   Future<Map<String, dynamic>?> fetchReceiptForRequest({
     required String docName,
     required String purpose,

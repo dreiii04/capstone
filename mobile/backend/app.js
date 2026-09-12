@@ -1854,6 +1854,7 @@ function buildRequestResponse(record) {
     status,
     createdAt: record.createdAt || new Date().toISOString(),
     updatedAt: record.updatedAt || record.createdAt || new Date().toISOString(),
+    claimedAt: record.claimedAt || null,
     documentPrice,
     processingFee,
     totalAmount,
@@ -2636,6 +2637,149 @@ app.get('/requests', requireAuth, async (req, res, next) => {
   }
 });
 
+app.post('/requests/:requestId/claim', requireAuth, writeLimiter, async (req, res, next) => {
+  try {
+    const user = await getUserFromAuth(req.auth);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+
+    const targetRequestId = String(req.params.requestId || '').trim();
+    if (!targetRequestId) {
+      return res.status(400).json({ success: false, message: 'Request ID is required.' });
+    }
+
+    const updatedAt = new Date().toISOString();
+    const claimedAt = updatedAt;
+
+    if (dbEnabled) {
+      const ownerClauses = buildMongoOwnerClauses(user);
+      if (ownerClauses.length === 0) {
+        return res.status(404).json({ success: false, message: 'Request not found.' });
+      }
+
+      // Find the request by requestId belonging to this user
+      const record = await requests.findOne({
+        $and: [
+          { $or: ownerClauses },
+          {
+            $or: [
+              { requestId: targetRequestId },
+              { _id: ObjectId.isValid(targetRequestId) ? new ObjectId(targetRequestId) : null },
+            ],
+          },
+        ],
+      });
+
+      if (!record) {
+        return res.status(404).json({ success: false, message: 'Request not found.' });
+      }
+
+      const currentStatus = normalizeWorkflowStatus(
+        firstNonEmptyString(record.status, record.state, record.requestStatus),
+      );
+      if (currentStatus !== 'released') {
+        return res.status(409).json({
+          success: false,
+          message: 'Only released requests can be claimed.',
+        });
+      }
+
+      const updateResult = await requests.updateOne(
+        { _id: record._id },
+        {
+          $set: {
+            status: 'Claimed',
+            mobileStatus: 'claimed',
+            claimedAt,
+            updatedAt,
+          },
+        },
+      );
+
+      if (updateResult.modifiedCount !== 1) {
+        return res.status(409).json({
+          success: false,
+          message: 'Could not claim this request. Please try again.',
+        });
+      }
+
+      const updatedRecord = await requests.findOne({ _id: record._id });
+
+      const docName = firstNonEmptyString(record.docName, record.documentType);
+      try {
+        await createNotificationRecord({
+          title: 'Document claimed',
+          message: `Your request for ${docName} has been claimed successfully.`,
+          isRead: false,
+          email: normalizeEmail(user.email),
+          userId: user._id || user.id,
+          createdAt: updatedAt,
+          updatedAt,
+        });
+      } catch (notificationError) {
+        console.error('Failed to create claim notification:', notificationError);
+      }
+
+      return res.json({
+        success: true,
+        request: buildRequestResponse(updatedRecord || { ...record, status: 'Claimed', mobileStatus: 'claimed', claimedAt, updatedAt }),
+      });
+    }
+
+    // In-memory path
+    const recordIndex = memoryRequests.findIndex((record) =>
+      recordBelongsToUser(record, user) &&
+      getRequestResponseId(record) === targetRequestId,
+    );
+
+    if (recordIndex < 0) {
+      return res.status(404).json({ success: false, message: 'Request not found.' });
+    }
+
+    const record = memoryRequests[recordIndex];
+    const currentStatus = normalizeWorkflowStatus(
+      firstNonEmptyString(record.status, record.state, record.requestStatus),
+    );
+    if (currentStatus !== 'released') {
+      return res.status(409).json({
+        success: false,
+        message: 'Only released requests can be claimed.',
+      });
+    }
+
+    memoryRequests[recordIndex] = {
+      ...record,
+      status: 'Claimed',
+      mobileStatus: 'claimed',
+      claimedAt,
+      updatedAt,
+    };
+
+    const docName = firstNonEmptyString(record.docName, record.documentType);
+    try {
+      await createNotificationRecord({
+        title: 'Document claimed',
+        message: `Your request for ${docName} has been claimed successfully.`,
+        isRead: false,
+        email: normalizeEmail(user.email),
+        userId: user._id || user.id,
+        createdAt: updatedAt,
+        updatedAt,
+      });
+    } catch (notificationError) {
+      console.error('Failed to create claim notification:', notificationError);
+    }
+
+    return res.json({
+      success: true,
+      request: buildRequestResponse(memoryRequests[recordIndex]),
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 app.get('/notifications', requireAuth, async (req, res, next) => {
   try {
     const user = await getUserFromAuth(req.auth);
@@ -3199,6 +3343,7 @@ app.put('/profile', requireAuth, writeLimiter, async (req, res, next) => {
       studentId: isStudent ? storedStudentId : '',
       yearLevel: parsed.yearLevel,
       program: parsed.program,
+      course: parsed.program,
     };
     await updateUserProfile(user, updates);
 

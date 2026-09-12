@@ -6,6 +6,7 @@ process.env.JWT_SECRET = 'test-only-secret-that-is-long-enough-for-hs256';
 
 const { issueSession, serializeUser } = require('../services/sessionService');
 const { tokenPredatesSecurityChange } = require('../middleware/authMiddleware');
+const Alumni = require('../models/Users/Alumni');
 const Registrar = require('../models/Registrar');
 
 test('shared sessions support both web and mobile token contracts', async () => {
@@ -69,6 +70,23 @@ test('user model serialization never exposes password or refresh-token hashes', 
   for (const output of [json, object]) {
     assert.equal(output.password, undefined);
     assert.equal(output.refreshTokens, undefined);
+  }
+});
+
+test('user management serialization strips mobile passwordHash records', () => {
+  const mobileCreatedUser = Alumni.hydrate({
+    _id: '507f1f77bcf86cd799439011',
+    firstName: 'Mobile',
+    lastName: 'Alumni',
+    email: 'mobile.alumni@example.com',
+    role: 'alumni',
+    passwordHash: '$2a$12$mobile-generated-bcrypt-hash',
+  });
+
+  const json = mobileCreatedUser.toJSON();
+  const object = mobileCreatedUser.toObject();
+  for (const output of [json, object]) {
+    assert.equal(output.passwordHash, undefined);
   }
 });
 

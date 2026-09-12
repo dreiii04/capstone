@@ -1,4 +1,5 @@
 import 'package:capstone_project/services/mongo_data_api_service.dart';
+import 'package:capstone_project/widgets/confirmation_dialog.dart';
 import 'package:capstone_project/widgets/simple_message_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -99,6 +100,17 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     FocusManager.instance.primaryFocus?.unfocus();
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
+    final confirmed = await showConfirmationDialog(
+      context,
+      title: 'Change Password',
+      message:
+          'Are you sure you want to update your password? Other active sessions will be signed out.',
+      confirmLabel: 'Change Password',
+      cancelLabel: 'Cancel',
+      icon: Icons.lock_reset_rounded,
+    );
+    if (!confirmed || !mounted) return;
+
     setState(() => _isSubmitting = true);
     try {
       final handler = widget.changePasswordHandler;
@@ -157,32 +169,27 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       ),
       body: SafeArea(
         top: false,
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final horizontalPadding = constraints.maxWidth >= 600 ? 32.0 : 16.0;
-            return AutofillGroup(
-              child: SingleChildScrollView(
-                keyboardDismissBehavior:
-                    ScrollViewKeyboardDismissBehavior.onDrag,
-                padding: EdgeInsets.fromLTRB(
-                  horizontalPadding,
-                  24,
-                  horizontalPadding,
-                  32,
-                ),
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 640),
-                    child: Form(
-                      key: _formKey,
-                      autovalidateMode: AutovalidateMode.onUserInteraction,
-                      child: _buildPasswordForm(password),
-                    ),
-                  ),
+        child: AutofillGroup(
+          child: SingleChildScrollView(
+            keyboardDismissBehavior:
+                ScrollViewKeyboardDismissBehavior.onDrag,
+            padding: EdgeInsets.fromLTRB(
+              MediaQuery.sizeOf(context).shortestSide >= 600 ? 32.0 : 16.0,
+              24,
+              MediaQuery.sizeOf(context).shortestSide >= 600 ? 32.0 : 16.0,
+              32,
+            ),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 640),
+                child: Form(
+                  key: _formKey,
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                  child: _buildPasswordForm(password),
                 ),
               ),
-            );
-          },
+            ),
+          ),
         ),
       ),
     );

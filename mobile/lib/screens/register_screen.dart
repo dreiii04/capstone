@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../services/mongo_data_api_service.dart';
+import '../widgets/confirmation_dialog.dart';
 import '../widgets/simple_message_dialog.dart';
 
 typedef RegisterOtpRequester = Future<OtpChallenge> Function({
@@ -97,6 +98,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
         : _program ?? '';
   }
 
+  late final ValueNotifier<String> _passwordStrengthNotifier;
+
   @override
   void initState() {
     super.initState();
@@ -105,12 +108,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
       currentYear - 1950 + 1,
       (index) => (currentYear - index).toString(),
     );
-    _passwordController.addListener(_refreshPasswordRequirements);
+    _passwordStrengthNotifier =
+        ValueNotifier<String>(_passwordStrength(_passwordController.text));
+    _passwordController.addListener(_updatePasswordStrength);
   }
 
   @override
   void dispose() {
-    _passwordController.removeListener(_refreshPasswordRequirements);
+    _passwordController.removeListener(_updatePasswordStrength);
+    _passwordStrengthNotifier.dispose();
     _firstNameController.dispose();
     _lastNameController.dispose();
     _emailController.dispose();
@@ -120,8 +126,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
-  void _refreshPasswordRequirements() {
-    if (mounted) setState(() {});
+  void _updatePasswordStrength() {
+    _passwordStrengthNotifier.value =
+        _passwordStrength(_passwordController.text);
   }
 
   String? _validateName(String? value, String fieldName) {
@@ -276,47 +283,87 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return verified ?? false;
   }
 
+  bool get _hasEnteredData {
+    return _firstNameController.text.trim().isNotEmpty ||
+        _lastNameController.text.trim().isNotEmpty ||
+        _emailController.text.trim().isNotEmpty ||
+        _passwordController.text.isNotEmpty ||
+        _confirmPasswordController.text.isNotEmpty ||
+        _studentStatus != null ||
+        _educationalLevel != null;
+  }
+
+  Future<bool> _confirmLeave() async {
+    if (_isSubmitting || !_hasEnteredData) return true;
+    return await showConfirmationDialog(
+      context,
+      title: 'Leave Registration?',
+      message:
+          'Are you sure you want to go back? Any entered registration details will be lost.',
+      confirmLabel: 'Leave',
+      cancelLabel: 'Stay',
+      isDestructive: true,
+      icon: Icons.warning_amber_rounded,
+    );
+  }
+
+  Future<void> _handleBack() async {
+    final shouldPop = await _confirmLeave();
+    if (shouldPop && mounted) {
+      Navigator.maybePop(context);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      body: Column(
-        children: [
-          Expanded(
-            flex: 2,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                Center(
-                  child: Padding(
-                    padding: const EdgeInsets.only(top: 40),
-                    child: Image.asset(
-                      'assets/logo/logo.png',
-                      height: 50,
-                      errorBuilder: (_, __, ___) => const Icon(
-                        Icons.image_outlined,
-                        color: _primaryBlue,
-                        size: 42,
+    return PopScope(
+      canPop: !_hasEnteredData && !_isSubmitting,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        final shouldPop = await _confirmLeave();
+        if (shouldPop && context.mounted) {
+          Navigator.of(context).pop();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: Colors.white,
+        body: Column(
+          children: [
+            Expanded(
+              flex: 2,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Center(
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 40),
+                      child: Image.asset(
+                        'assets/logo/logo.png',
+                        height: 50,
+                        errorBuilder: (_, __, ___) => const Icon(
+                          Icons.image_outlined,
+                          color: _primaryBlue,
+                          size: 42,
+                        ),
                       ),
                     ),
                   ),
-                ),
-                SafeArea(
-                  bottom: false,
-                  child: Align(
-                    alignment: Alignment.topLeft,
-                    child: IconButton(
-                      key: const Key('registration_back_button'),
-                      tooltip: 'Back to login',
-                      onPressed: () => Navigator.maybePop(context),
-                      icon: const Icon(Icons.arrow_back_rounded),
-                      color: _darkNavy,
+                  SafeArea(
+                    bottom: false,
+                    child: Align(
+                      alignment: Alignment.topLeft,
+                      child: IconButton(
+                        key: const Key('registration_back_button'),
+                        tooltip: 'Back to login',
+                        onPressed: _handleBack,
+                        icon: const Icon(Icons.arrow_back_rounded),
+                        color: _darkNavy,
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
           Expanded(
             flex: 6,
             child: Container(
@@ -328,29 +375,28 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   topRight: Radius.circular(30),
                 ),
               ),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final horizontalPadding =
-                      constraints.maxWidth >= 600 ? 36.0 : 25.0;
-                  return Form(
-                    key: _formKey,
-                    autovalidateMode: AutovalidateMode.onUserInteraction,
-                    child: AutofillGroup(
-                      child: SingleChildScrollView(
-                        keyboardDismissBehavior:
-                            ScrollViewKeyboardDismissBehavior.onDrag,
-                        padding: EdgeInsets.symmetric(
-                          horizontal: horizontalPadding,
-                          vertical: 30,
-                        ),
-                        child: Center(
-                          child: ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 560),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                const Text(
-                                  'Create an Account',
+              child: Form(
+                key: _formKey,
+                autovalidateMode: AutovalidateMode.disabled,
+                child: AutofillGroup(
+                  child: SingleChildScrollView(
+                    keyboardDismissBehavior:
+                        ScrollViewKeyboardDismissBehavior.onDrag,
+                    padding: EdgeInsets.symmetric(
+                      horizontal:
+                          MediaQuery.sizeOf(context).shortestSide >= 600
+                              ? 36.0
+                              : 25.0,
+                      vertical: 30,
+                    ),
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 560),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            const Text(
+                              'Create an Account',
                                   style: TextStyle(
                                     color: Colors.white,
                                     fontSize: 22,
@@ -417,12 +463,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                   ),
                                 ),
                                 const SizedBox(height: 8),
-                                Text(
-                                  'Password strength: ${_passwordStrength(_passwordController.text)}',
-                                  style: const TextStyle(
-                                    color: Colors.white70,
-                                    fontSize: 12,
-                                  ),
+                                ValueListenableBuilder<String>(
+                                  valueListenable: _passwordStrengthNotifier,
+                                  builder: (context, strength, _) {
+                                    return Text(
+                                      'Password strength: $strength',
+                                      style: const TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 12,
+                                      ),
+                                    );
+                                  },
                                 ),
                                 const SizedBox(height: 15),
                                 _textField(
@@ -519,15 +570,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         ),
                       ),
                     ),
-                  );
-                },
+                  ),
+                ),
               ),
-            ),
+            ],
           ),
-        ],
-      ),
-    );
-  }
+        ),
+      );
+    }
 
   Widget _buildStudentStatusField() {
     return DropdownButtonFormField<String>(

@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:capstone_project/constants.dart';
 import 'package:flutter/material.dart';
 
@@ -54,28 +55,49 @@ class ProfileAvatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final resolvedUrl = resolveProfileImageUrl(imageUrl);
-    final provider = imageProvider ??
-        (resolvedUrl.startsWith('http://') || resolvedUrl.startsWith('https://')
-            ? NetworkImage(resolvedUrl)
-            : null);
+    // Prefer an explicitly provided ImageProvider (e.g. FileImage for local
+    // picks), fall back to CachedNetworkImage for remote URLs so that the image
+    // is persisted to disk and never re-downloaded on rebuild or navigation.
+    final isRemote = resolvedUrl.startsWith('http://') ||
+        resolvedUrl.startsWith('https://');
 
     return Semantics(
-      image: provider != null,
+      image: imageProvider != null || isRemote,
       label: semanticLabel,
       child: SizedBox.square(
         dimension: size,
         child: ClipOval(
-          child: provider == null
-              ? _fallback()
-              : Image(
+          child: imageProvider != null
+              ? Image(
                   key: ValueKey(resolvedUrl),
-                  image: provider,
+                  image: imageProvider!,
                   width: size,
                   height: size,
                   fit: BoxFit.cover,
                   gaplessPlayback: true,
                   errorBuilder: (_, __, ___) => _fallback(),
-                ),
+                )
+              : isRemote
+                  ? CachedNetworkImage(
+                      key: ValueKey(resolvedUrl),
+                      imageUrl: resolvedUrl,
+                      width: size,
+                      height: size,
+                      fit: BoxFit.cover,
+                      // Cap in-memory and on-disk decoded bitmap resolution so large
+                      // profile pictures never bloat app RAM or device storage.
+                      memCacheWidth: 200,
+                      memCacheHeight: 200,
+                      maxWidthDiskCache: 300,
+                      maxHeightDiskCache: 300,
+                      // Use the previously cached image while a newer one loads
+                      // so there is no flash of the fallback icon on rebuild.
+                      fadeOutDuration: Duration.zero,
+                      fadeInDuration: const Duration(milliseconds: 200),
+                      placeholder: (_, __) => _fallback(),
+                      errorWidget: (_, __, ___) => _fallback(),
+                    )
+                  : _fallback(),
         ),
       ),
     );
