@@ -5,10 +5,38 @@ import Layout from '../../components/Layout';
 import ConfirmModal from '../../components/ConfirmModal';
 import FeedbackModal from '../../components/FeedbackModal';
 import api, { resolveApiAssetUrl } from '../../api';
+import { receiptRejectionReasons } from '../../receiptRejectionReasons';
 
 const isBlockchainDocument = (value) => {
     const type = String(value || '').toLowerCase();
     return type.includes('transcript') || type.includes('tor') || type.includes('diploma');
+};
+
+const formatEstimatedProcessingRange = (startValue, endValue) => {
+    const start = String(startValue || '').slice(0, 10);
+    const end = String(endValue || '').slice(0, 10);
+    const valid = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value);
+    if (!valid(start) && !valid(end)) return '';
+    const last = valid(end) ? end : start;
+    const parts = (day) => {
+        const date = new Date(`${day}T00:00:00Z`);
+        return {
+            day: date.getUTCDate(), year: date.getUTCFullYear(),
+            monthNumber: date.getUTCMonth(),
+            month: new Intl.DateTimeFormat('en-US', { month: 'short', timeZone: 'UTC' }).format(date),
+        };
+    };
+    const finish = parts(last);
+    const finishLabel = `${finish.day} ${finish.month} ${finish.year}`;
+    if (!valid(start) || start >= last) return finishLabel;
+    const begin = parts(start);
+    if (begin.year === finish.year && begin.monthNumber === finish.monthNumber) {
+        return `${begin.day}–${finishLabel}`;
+    }
+    if (begin.year === finish.year) {
+        return `${begin.day} ${begin.month}–${finishLabel}`;
+    }
+    return `${begin.day} ${begin.month} ${begin.year}–${finishLabel}`;
 };
 
 const RequestDetails = () => {
@@ -33,6 +61,8 @@ const RequestDetails = () => {
     const [manualRejectionReason, setManualRejectionReason] = useState('');
     const [showRejectForm, setShowRejectForm] = useState(false);
     const [paymentAction, setPaymentAction] = useState('Completed');
+    const [paymentReason, setPaymentReason] = useState('');
+    const [customPaymentReason, setCustomPaymentReason] = useState('');
     const [confirmConfig, setConfirmConfig] = useState(null);
 
     // Blockchain Data State
@@ -85,7 +115,7 @@ const RequestDetails = () => {
                 found?.documentType || found?.document_type,
             );
 
-            if (found && found.status === 'Released') {
+            if (found && (found.status === 'Released' || found.status === 'Ready to Claim' || found.status === 'Claimed' || found.status === 'Completed')) {
                 setCurrentStep(isBlockchain ? 4 : 3);
             } else if (found && found.status === 'In Process') {
                 if (found.documentFile) {
@@ -93,14 +123,8 @@ const RequestDetails = () => {
                 } else {
                     setCurrentStep(2); // Has verified payment/bypassed, moving to upload
                 }
-            } else if (foundTx && foundTx.status === 'Completed') {
-                if (found && found.documentFile) {
-                    setCurrentStep(3);
-                } else {
-                    setCurrentStep(2);
-                }
             } else {
-                setCurrentStep(1); // Pending payment verification
+                setCurrentStep(1); // Pending payment verification or Pending staff processing
             }
 
         } catch (error) {
@@ -136,22 +160,24 @@ const RequestDetails = () => {
     };
 
     const handleVerifyPayment = async (status) => {
+        const reason = paymentReason === 'Other' ? customPaymentReason.trim() : paymentReason;
+        if (status === 'Needs Update' && !reason) {
+            showFeedback({ title: 'Reason Required', message: 'Select or enter a receipt rejection reason.' });
+            return;
+        }
         setActionLoading(true);
         try {
-            await api.put(`/transactions/${paymentTx.transactionId}/verify`, { status });
-            // Note: The backend now automatically syncs the Request status to "In Process" when status === "Completed".
-            // However, we still call the explicit /requests update here as well to ensure UI state syncs properly,
-            // or we could just rely on the backend. Since the backend handles it, the following is slightly redundant but safe.
-            if (status === 'Completed') {
-                await api.put(`/requests/${id}`, { status: 'In Process' });
-            }
+            await api.put(`/transactions/${paymentTx.transactionId}/verify`, {
+                status, adminRemarks: status === 'Needs Update' ? reason : ''
+            });
             await fetchData();
-            if (status === 'Completed') setCurrentStep(2);
+            setPaymentReason('');
+            setCustomPaymentReason('');
         } catch (err) {
             console.error(err);
             showFeedback({
                 title: 'Payment Verification Failed',
-                message: 'We were unable to verify this payment. Please check your connection and try again.',
+                message: err.response?.data?.message || 'We were unable to verify this payment. Please try again.',
                 type: 'error'
             });
         } finally {
@@ -278,6 +304,8 @@ const RequestDetails = () => {
     if (!requestData) return <Layout><div className="p-8 text-center text-red-500 font-bold">Request not found.</div></Layout>;
 
     const status = requestData.status || 'Pending';
+    const estimatedEnd = requestData.estimatedProcessingEnd || requestData.estimatedCompletionDate;
+    const estimateLabel = formatEstimatedProcessingRange(requestData.estimatedProcessingStart, estimatedEnd);
     const isBlockchainEligible = documentData?.isBlockchainEligible ||
         isBlockchainDocument(requestData.documentType || requestData.document_type);
 
@@ -308,6 +336,26 @@ const RequestDetails = () => {
                             {status}
                         </span>
                     </div>
+
+                    {status === 'In Process' && estimateLabel && (
+                        <div className="bg-blue-50 p-5 rounded-2xl border border-blue-200 mb-8 text-blue-900">
+                            <h2 className="font-bold mb-3">Processing Estimate</h2>
+                            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white/70 px-3 py-2 text-sm">
+                                <span className="text-blue-700">Est. processing</span>
+                                <strong>{estimateLabel}</strong>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm mt-3">
+                                {requestData.processingStartedAt &&
+                                    <div><span className="block text-blue-700">Processing Started</span>
+                                        <strong>{new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Manila', year: 'numeric', month: 'long', day: 'numeric' }).format(new Date(requestData.processingStartedAt))}</strong>
+                                    </div>}
+                                {requestData.processingDays &&
+                                    <div><span className="block text-blue-700">Processing Duration</span>
+                                        <strong>{requestData.processingDays} business days</strong>
+                                    </div>}
+                            </div>
+                        </div>
+                    )}
 
                     {status === 'Rejected' && (
                         <div className="bg-red-50 p-6 rounded-2xl border border-red-200 mb-8 flex flex-col md:flex-row md:items-start justify-between gap-4">
@@ -425,6 +473,16 @@ const RequestDetails = () => {
                                                         {paymentTx.status}
                                                     </span>
                                                 </div>
+                                                {(paymentTx.receiptHistory?.length > 0 || ['Rejected', 'Needs Update'].includes(paymentTx.status)) && (
+                                                    <div className="px-4 pt-4 text-sm">
+                                                        {paymentTx.receiptHistory?.length > 0 && (
+                                                            <p className="font-bold text-blue-700">Resubmitted receipt #{paymentTx.receiptHistory.length + 1} — latest receipt shown below</p>
+                                                        )}
+                                                        {['Rejected', 'Needs Update'].includes(paymentTx.status) && (
+                                                            <p className="mt-2 text-amber-700">Receipt needs update. Reason: {paymentTx.rejectionReason || paymentTx.adminRemarks}</p>
+                                                        )}
+                                                    </div>
+                                                )}
                                                 <div className="p-4 grid grid-cols-2 gap-4">
                                                     <div>
                                                         <p className="text-xs text-slate-500 mb-1">Method & Amount</p>
@@ -451,34 +509,96 @@ const RequestDetails = () => {
                                                             disabled={!hasProcessingAccess}
                                                         >
                                                             <option value="Completed">Approve Payment</option>
-                                                            <option value="Needs Update">Needs Update (Wrong/Blurry Receipt)</option>
-                                                            <option value="Rejected">Reject Completely (Fraud/Invalid)</option>
+                                                            <option value="Needs Update">Needs Update (User Can Resubmit)</option>
                                                         </select>
+                                                        {paymentAction === 'Needs Update' && (
+                                                            <div className="flex-1 space-y-2">
+                                                                <select className="w-full py-3 px-4 border border-slate-200 rounded-xl text-sm"
+                                                                    value={paymentReason} onChange={(e) => setPaymentReason(e.target.value)}>
+                                                                    <option value="">Select update reason</option>
+                                                                    {receiptRejectionReasons.map((reason) => <option key={reason} value={reason}>{reason}</option>)}
+                                                                    <option value="Other">Other reason</option>
+                                                                </select>
+                                                                {paymentReason === 'Other' && (
+                                                                    <textarea className="w-full p-3 border border-slate-200 rounded-xl text-sm"
+                                                                        maxLength={500} value={customPaymentReason}
+                                                                        onChange={(e) => setCustomPaymentReason(e.target.value)}
+                                                                        placeholder="Explain why the receipt cannot be verified" />
+                                                                )}
+                                                            </div>
+                                                        )}
                                                         <button
-                                                            className={`flex-[1] text-white py-3 px-6 rounded-xl font-bold text-sm transition-all shadow-md ${!hasProcessingAccess ? 'bg-slate-300 shadow-none' : paymentAction === 'Completed' ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-100' : 'bg-red-600 hover:bg-red-700 shadow-red-100'}`}
+                                                            className={`flex-[1] text-white py-3 px-6 rounded-xl font-bold text-sm transition-all shadow-md ${!hasProcessingAccess ? 'bg-slate-300 shadow-none' : paymentAction === 'Completed' ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-100' : 'bg-amber-600 hover:bg-amber-700 shadow-amber-100'}`}
                                                             onClick={() => showConfirm({
                                                                 title: 'Confirm Payment Action',
-                                                                message: `Are you sure you want to ${paymentAction === 'Completed' ? 'approve' : paymentAction === 'Needs Update' ? 'request an update for' : 'reject'} this payment?`,
+                                                                message: `Are you sure you want to ${paymentAction === 'Completed' ? 'approve' : 'mark as Needs Update'} this receipt?`,
                                                                 type: paymentAction === 'Completed' ? 'info' : 'warning',
                                                                 onConfirm: () => handleVerifyPayment(paymentAction)
                                                             })}
-                                                            disabled={actionLoading || !hasProcessingAccess}
+                                                            disabled={actionLoading || !hasProcessingAccess || (paymentAction === 'Needs Update' && (!paymentReason || (paymentReason === 'Other' && !customPaymentReason.trim())))}
                                                         >
                                                             {actionLoading ? 'Processing...' : 'Confirm Action'}
+                                                        </button>
+                                                    </div>
+                                                )}
+                                                {paymentTx.status === 'Completed' && status === 'Pending' && (
+                                                    <div className="p-4 bg-emerald-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4">
+                                                        <div>
+                                                            <p className="text-xs font-bold text-emerald-800 uppercase tracking-wide">Payment Verified</p>
+                                                            <p className="text-xs text-emerald-700">Payment has been confirmed. Click &quot;Start Processing&quot; to begin preparing the document.</p>
+                                                        </div>
+                                                        <button
+                                                            className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm py-2.5 px-6 rounded-xl transition-all shadow-md shadow-blue-100 flex items-center gap-2 disabled:opacity-50 shrink-0"
+                                                            disabled={actionLoading || !hasProcessingAccess}
+                                                            onClick={() => showConfirm({
+                                                                title: 'Start Processing Document',
+                                                                message: 'Start processing this request now? The request status will transition to In Process.',
+                                                                type: 'info',
+                                                                onConfirm: async () => {
+                                                                    await handleStatusUpdate('In Process');
+                                                                    setCurrentStep(2);
+                                                                }
+                                                            })}
+                                                        >
+                                                            {actionLoading ? 'Updating...' : 'Start Processing'} <ChevronRight size={16} />
                                                         </button>
                                                     </div>
                                                 )}
                                             </div>
                                         )}
 
-                                        {!paymentTx && (
+                                        {!paymentTx && status === 'Pending' && (
+                                            <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4 mb-6">
+                                                <div>
+                                                    <p className="text-xs font-bold text-emerald-800 uppercase tracking-wide">Ready for Processing</p>
+                                                    <p className="text-xs text-emerald-700">This request is pending processing. Click &quot;Start Processing&quot; to begin.</p>
+                                                </div>
+                                                <button
+                                                    className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm py-2.5 px-6 rounded-xl transition-all shadow-md shadow-blue-100 flex items-center gap-2 disabled:opacity-50 shrink-0"
+                                                    disabled={actionLoading || !hasProcessingAccess}
+                                                    onClick={() => showConfirm({
+                                                        title: 'Start Processing Document',
+                                                        message: 'Start processing this request now? The request status will transition to In Process.',
+                                                        type: 'info',
+                                                        onConfirm: async () => {
+                                                            await handleStatusUpdate('In Process');
+                                                            setCurrentStep(2);
+                                                        }
+                                                    })}
+                                                >
+                                                    {actionLoading ? 'Updating...' : 'Start Processing'} <ChevronRight size={16} />
+                                                </button>
+                                            </div>
+                                        )}
+
+                                        {!paymentTx && status !== 'Pending' && (
                                             <div className="bg-amber-50 p-4 rounded-xl text-amber-700 font-bold mb-8">
                                                 <AlertCircle className="inline mr-2" size={18} /> No payment transaction found for this request.
                                             </div>
                                         )}
 
                                         <div className="pt-6 border-t border-slate-100 flex flex-col gap-4">
-                                            {(!paymentTx || paymentTx.status !== 'Completed') && !showRejectForm && isSuperAdmin && (
+                                            {(!paymentTx || paymentTx.status !== 'Completed') && status !== 'Pending' && !showRejectForm && isSuperAdmin && (
                                                 <div className="flex justify-end">
                                                     <button
                                                         className="bg-slate-100 text-slate-700 hover:bg-slate-200 px-6 py-3 rounded-xl font-bold text-sm flex items-center gap-2 transition-colors disabled:opacity-50"
@@ -534,8 +654,8 @@ const RequestDetails = () => {
                                                     <button
                                                         className="text-slate-400 hover:text-red-500 font-bold text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                                                         onClick={() => setShowRejectForm(true)}
-                                                        disabled={!hasProcessingAccess || status === 'In Process'}
-                                                        title={status === 'In Process' ? 'Cannot reject a request that is already In Process. Use the stepper to continue processing.' : ''}
+                                                        disabled={!hasProcessingAccess || (paymentTx && paymentTx.status !== 'Completed')}
+                                                        title={paymentTx && paymentTx.status !== 'Completed' ? 'Review the receipt before rejecting the document request.' : ''}
                                                     >
                                                         <Trash2 size={16} /> Reject Request
                                                     </button>

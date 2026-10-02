@@ -22,7 +22,7 @@ import '../services/mongo_data_api_service.dart';
 // ---------------------------------------------------------------------------
 
 bool _isHistoryStatusFn(String status) {
-  final normalized = status.trim().toLowerCase().replaceAll('-', '_');
+  final normalized = status.trim().toLowerCase().replaceAll('-', '_').replaceAll(' ', '_');
   return const {
     'complete',
     'completed',
@@ -33,16 +33,22 @@ bool _isHistoryStatusFn(String status) {
     'denied',
     'cancelled',
     'canceled',
+    'released',
+    'ready_to_claim',
+    'refund_approved',
+    'refunded',
   }.contains(normalized);
 }
 
 bool _isApprovedStatusFn(String status) {
-  final normalized = status.trim().toLowerCase();
+  final normalized = status.trim().toLowerCase().replaceAll('-', '_').replaceAll(' ', '_');
   return normalized == 'complete' ||
       normalized == 'approved' ||
       normalized == 'released' ||
+      normalized == 'ready_to_claim' ||
       normalized == 'claimed' ||
-      normalized == 'completed';
+      normalized == 'completed' ||
+      normalized == 'refund_approved';
 }
 
 double _parseAmountFn(dynamic value) {
@@ -132,9 +138,9 @@ HistoryItem _historyFromRequestFn(
   final paymentType = transaction == null
       ? requestPaymentType
       : _firstTextFn(transaction, const ['paymentType', 'paymentMode']);
-  final hasPaymentRecord = transaction != null ||
-      request['paymentReceived'] == true ||
-      requestPaymentType.isNotEmpty;
+  final receiptStatus = transaction?['receiptStatus']?.toString() ??
+      transaction?['status']?.toString() ?? '';
+  final hasPaymentRecord = const ['Completed', 'Refunded'].contains(receiptStatus);
   final requestRemarks = _recordRemarksFn(request);
   final transactionRemarks =
       transaction == null ? '' : _recordRemarksFn(transaction);
@@ -149,10 +155,6 @@ HistoryItem _historyFromRequestFn(
   DateTime? dateProcessed;
   if (request['processedAt'] != null) {
     dateProcessed = parseApiDateTime(request['processedAt']);
-  } else if (request['updatedAt'] != null &&
-      request['status'] != null &&
-      request['status'].toString().toLowerCase() != 'pending') {
-    dateProcessed = parseApiDateTime(request['updatedAt']);
   }
 
   DateTime? dateClaimed;
@@ -163,6 +165,8 @@ HistoryItem _historyFromRequestFn(
   }
 
   return HistoryItem(
+    processingOption: request['processingOption']?.toString() ?? 'standard',
+    statusHistory: (request['statusHistory'] as List? ?? []).whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList(),
     requestId: _recordRequestIdFn(request).isNotEmpty
         ? _recordRequestIdFn(request)
         : _firstTextFn(request, const ['id']),
@@ -231,6 +235,15 @@ _MappedRequestData _runRequestMapping(_MappingInput input) {
     );
     final transaction =
         transactionIndex == null ? null : usableTransactions[transactionIndex];
+    final receiptStatus = transaction?['receiptStatus']?.toString() ??
+        transaction?['status']?.toString() ?? '';
+    final receiptRejected = const ['Rejected', 'Needs Update'].contains(receiptStatus);
+    final requestRejectionReason = _firstTextFn(item, const ['rejectionReason', 'remarks']);
+    final legacyReceiptCorrection = statusRaw.toLowerCase() == 'rejected' &&
+        receiptRejected &&
+        (item['correctionType'] == 'receipt' ||
+            requestRejectionReason.toLowerCase() == 'payment issue') &&
+        _firstTextFn(item, const ['refundStatus']).isEmpty;
     final hasSubmittedPayment = transaction != null &&
         transactionIndicatesSubmittedPayment(
           transaction['status']?.toString() ?? '',
@@ -247,7 +260,10 @@ _MappedRequestData _runRequestMapping(_MappingInput input) {
         ? linkedRequestId
         : _firstTextFn(item, const ['id', '_id']);
 
-    if (_isHistoryStatusFn(statusRaw)) {
+    final isRefundApproved = _normalizedValueFn(item['refundStatus']).contains('approv') ||
+        (transaction != null && _normalizedValueFn(transaction['refundStatus']).contains('approv'));
+
+    if ((_isHistoryStatusFn(statusRaw) && !legacyReceiptCorrection) || isRefundApproved) {
       if (transactionIndex != null) {
         consumedTransactions.add(transactionIndex);
       }
@@ -267,7 +283,24 @@ _MappedRequestData _runRequestMapping(_MappingInput input) {
           docName: docName,
           purpose: purpose,
           dateCreated: createdAt,
-          status: status,
+          status: legacyReceiptCorrection ||
+                  (receiptRejected && const ['PENDING', 'NEEDS UPDATE'].contains(status))
+              ? 'NEEDS UPDATE' : status,
+          processingOption: item['processingOption']?.toString() ?? 'standard',
+          remarks: item['remarks']?.toString().isNotEmpty == true ? item['remarks'].toString() : transaction?['remarks']?.toString() ?? transaction?['adminRemarks']?.toString() ?? '',
+          correctionType: item['correctionType']?.toString().isNotEmpty == true ? item['correctionType'].toString() :
+              receiptRejected ? 'receipt' : '',
+          receiptStatus: receiptStatus,
+          processingStartedAt: tryParseApiDateTime(item['processingStartedAt']),
+          estimatedProcessingStart: tryParseApiCalendarDate(item['estimatedProcessingStart']),
+          estimatedCompletionDate:
+              tryParseApiCalendarDate(item['estimatedProcessingEnd']) ??
+              tryParseApiCalendarDate(item['estimatedCompletionDate']),
+          processingDays: (item['processingDays'] as num?)?.toInt(),
+          receiptRejectionReason: transaction?['receiptRejectionReason']?.toString().isNotEmpty == true
+              ? transaction!['receiptRejectionReason'].toString()
+              : transaction?['rejectionReason']?.toString() ?? item['remarks']?.toString() ?? '',
+          statusHistory: (item['statusHistory'] as List? ?? []).whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList(),
           documentPrice: documentPrice,
           totalAmount: resolvedTotal,
         ),
@@ -1125,6 +1158,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             ),
                           ],
                         ),
+                        if (_pendingRequestsError != null &&
+                            _pendingRequestsError!.isNotEmpty) ...[
+                          const SizedBox(height: 12),
+                          Text(
+                            'Requests could not be refreshed: $_pendingRequestsError',
+                            style: const TextStyle(color: Colors.white, fontSize: 12),
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -1148,7 +1189,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         onTap: () => Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (context) => const DataConsentScreen(),
+                            builder: (context) =>
+                                DataConsentScreen(profile: _profileSummary),
                           ),
                         ),
                         borderRadius: BorderRadius.circular(22.r),

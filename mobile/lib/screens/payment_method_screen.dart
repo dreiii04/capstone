@@ -1,3 +1,4 @@
+import '../widgets/confirmation_dialog.dart';
 import 'dart:typed_data';
 
 import 'package:capstone_project/screens/home_screen.dart';
@@ -25,23 +26,36 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
   String? _receiptName;
 
   bool get _hasReceipt => _receiptBytes != null;
+  bool get _isResubmission => widget.request.correctionType == 'receipt';
   String _amountLabel(double value) => 'PHP ${value.toStringAsFixed(2)}';
   Future<void> _pickReceipt({
     required ImageSource source,
   }) async {
-    final file = await _picker.pickImage(
-      source: source,
-      maxWidth: 1600,
-      maxHeight: 1600,
-      imageQuality: 85,
-    );
-    if (file == null) return;
+    try {
+      final file = await _picker.pickImage(
+        source: source,
+        maxWidth: 1600,
+        maxHeight: 1600,
+        imageQuality: 85,
+      );
+      if (file == null) return;
 
-    final bytes = await file.readAsBytes();
-    setState(() {
-      _receiptBytes = bytes;
-      _receiptName = file.name;
-    });
+      final bytes = await file.readAsBytes();
+      if (!mounted) return;
+      if (bytes.isEmpty || bytes.length > 4 * 1024 * 1024 || receiptImageContentType(bytes) == null) {
+        await showSimpleMessageDialog(context, 'Choose a valid JPG, PNG, WEBP, or HEIC receipt up to 4 MB.', title: 'Invalid receipt');
+        return;
+      }
+      setState(() {
+        _receiptBytes = bytes;
+        _receiptName = file.name;
+      });
+    } catch (_) {
+      if (mounted) {
+        await showSimpleMessageDialog(context,
+          'The receipt could not be opened. Choose another image and try again.', title: 'Receipt unavailable');
+      }
+    }
   }
 
   void _showReceiptSourceSheet() {
@@ -74,6 +88,15 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
   }
 
   Future<void> _submitPayment() async {
+    if (_isSubmitting || !_hasReceipt) return;
+    setState(() => _isSubmitting = true);
+    final confirmed = await showConfirmationDialog(context,
+      title: _isResubmission ? 'Resubmit Receipt' : 'Submit Receipt',
+      message: _isResubmission
+          ? 'Replace the receipt that needs updating? Your payment and document request will stay the same while the Registrar reviews the new image.'
+          : 'Submit this receipt for ${widget.request.processingOption} processing? Total: ${_amountLabel(widget.request.totalAmount)}. The Registrar will review your payment.');
+    if (!mounted) return;
+    if (!confirmed) { setState(() => _isSubmitting = false); return; }
     setState(() {
       _isSubmitting = true;
     });
@@ -103,16 +126,18 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
         docName: widget.request.docName,
         purpose: widget.request.purpose,
         dateCreated: widget.request.dateCreated,
-        status: 'PENDING TO COMPLETE',
         status: 'PENDING',
+        correctionType: widget.request.correctionType,
+        processingOption: widget.request.processingOption,
         documentPrice: widget.request.documentPrice,
         totalAmount: widget.request.totalAmount,
       );
-      Navigator.push(
+      Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(
           builder: (context) => SuccessfulScreen(request: updatedRequest),
         ),
+        (route) => false,
       );
     } catch (e) {
       if (!mounted) return;
@@ -137,30 +162,45 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
       appBar: AppBar(
         backgroundColor: const Color(0xFF5D7E97),
         title: CustomFont(
-            text: "Payment Method",
+            text: _isResubmission ? 'Resubmit Receipt' : 'Payment Method',
             color: Colors.white,
             fontSize: 20.sp,
             fontWeight: FontWeight.bold),
       ),
-      body: Padding(
+      body: SingleChildScrollView(
+        child: Padding(
         padding: EdgeInsets.all(20.w),
         child: Column(
           children: [
-            _buildSectionCard("Billing Summary", [
+            _buildSectionCard(_isResubmission ? 'Existing Payment' : 'Billing Summary', [
               _infoRow("Document Requested", widget.request.docName),
+              _infoRow("Processing", widget.request.processingOption.toUpperCase()),
+              if (widget.request.totalAmount > widget.request.documentPrice)
+                _infoRow("Processing Fee", _amountLabel(widget.request.totalAmount - widget.request.documentPrice)),
               _infoRow(
                 "Document Price",
                 _amountLabel(widget.request.documentPrice),
               ),
               const Divider(),
               _infoRow(
-                "Total Amount Due",
+                _isResubmission ? 'Payment Amount' : 'Total Amount Due',
                 _amountLabel(widget.request.totalAmount),
                 isBold: true,
               ),
             ]),
 
             SizedBox(height: 20.h),
+            if (_isResubmission) ...[
+              const Text('Your receipt needs an update. Upload a clearer image of the same payment; you do not need to pay again.'),
+              if (widget.request.receiptRejectionReason.isNotEmpty || widget.request.remarks.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text('Reason: ${widget.request.receiptRejectionReason.isNotEmpty ? widget.request.receiptRejectionReason : widget.request.remarks}'),
+              ],
+              SizedBox(height: 16.h),
+            ] else if (widget.request.remarks.isNotEmpty)
+              Text(widget.request.remarks),
+            if (_receiptBytes != null) Padding(padding: const EdgeInsets.only(bottom: 16),
+              child: Image.memory(_receiptBytes!, height: 220, fit: BoxFit.contain, errorBuilder: (_, error, stack) => const Text('Preview unavailable'))),
             // Receipt Upload
             Container(
               padding: EdgeInsets.all(20.r),
@@ -171,15 +211,17 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   CustomFont(
-                      text: "Upload Receipt",
+                      text: _isResubmission ? 'Replacement Receipt' : 'Upload Receipt',
                       fontSize: 16.sp,
                       fontWeight: FontWeight.bold,
                       color: const Color(0xFF233446)),
                   SizedBox(height: 12.h),
                   _buildReceiptSection(
                     title: "Receipt",
-                    description: "Upload your official receipt file.",
-                    buttonLabel: "Upload file",
+                    description: _isResubmission
+                        ? 'Choose a new, readable image of the same payment.'
+                        : 'Upload your official receipt file.',
+                    buttonLabel: _isResubmission ? 'Choose new receipt' : 'Upload file',
                     onPressed: _isSubmitting ? null : _showReceiptSourceSheet,
                     fileName: _receiptName,
                   ),
@@ -208,7 +250,9 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
               Padding(
                 padding: EdgeInsets.only(left: 8.w, bottom: 6.h),
                 child: CustomFont(
-                  text: "Upload at least one receipt to continue.",
+                  text: _isResubmission
+                      ? 'Choose a replacement receipt to continue.'
+                      : 'Upload a receipt to continue.',
                   fontSize: 10.sp,
                   color: Colors.redAccent,
                 ),
@@ -234,12 +278,13 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
                       ),
                     )
                   : CustomFont(
-                      text: "Confirm Payment",
+                      text: _isResubmission ? 'Resubmit Receipt' : 'Confirm Payment',
                       color: Colors.white,
                       fontWeight: FontWeight.bold,
                       fontSize: 16.sp),
             ),
           ],
+        ),
         ),
       ),
     );
@@ -350,14 +395,17 @@ class SuccessfulScreen extends StatelessWidget {
               ),
               SizedBox(height: 30.h),
               CustomFont(
-                  text: "Payment Successful",
+                  text: request.correctionType == 'receipt'
+                      ? 'New Receipt Submitted' : 'Receipt Submitted',
                   fontSize: 24.sp,
                   fontWeight: FontWeight.bold,
                   color: const Color(0xFF233446)),
               SizedBox(height: 10.h),
               CustomFont(
                 text:
-                    "Your payment has been successfully submitted. Please wait while the registrar verifies your payment.",
+                    request.correctionType == 'receipt'
+                        ? 'Your new receipt has been submitted and is waiting for verification.'
+                        : 'Your receipt has been submitted and is waiting for verification.',
                 textAlign: TextAlign.center,
                 fontSize: 13.sp,
                 color: Colors.black54,

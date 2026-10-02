@@ -73,6 +73,10 @@ const transactionSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
+  rejectionReason: { type: String, default: '' },
+  refundStatus: { type: String, default: '' },
+  receiptHistory: { type: [mongoose.Schema.Types.Mixed], default: [] },
+  lastSubmittedAt: { type: Date, default: null },
   status: {
     type: String,
     enum: ['Pending Verification', 'Completed', 'Needs Update', 'Rejected', 'Refunded'],

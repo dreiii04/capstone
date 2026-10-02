@@ -5,7 +5,8 @@ import ConfirmModal from '../../components/ConfirmModal';
 import FilterDrawer from '../../components/FilterDrawer';
 import ActiveFilterChips from '../../components/ActiveFilterChips';
 import api from '../../api';
-import { X, ZoomIn, CheckCircle, Image as ImageIcon, Send, AlertCircle, RefreshCw, Receipt, Eye, XCircle, Undo2, SlidersHorizontal, ArrowDownAZ, ArrowUpZA } from 'lucide-react';
+import { receiptRejectionReasons } from '../../receiptRejectionReasons';
+import { X, ZoomIn, CheckCircle, Image as ImageIcon, Send, AlertCircle, Receipt, Eye, XCircle, Undo2, SlidersHorizontal, ArrowDownAZ, ArrowUpZA } from 'lucide-react';
 
 const API_BASE = (import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace('/api', '') : '') || 'http://127.0.0.1:5000';
 
@@ -40,6 +41,8 @@ const Transactions = () => {
   // Modal & Toast States
   const [selectedTx, setSelectedTx] = useState(null);
   const [adminNote, setAdminNote] = useState('');
+  const [receiptReasonOption, setReceiptReasonOption] = useState('');
+  const [verificationLoading, setVerificationLoading] = useState(false);
   const [error, setError] = useState('');
   const [toast, setToast] = useState({ show: false, message: '', type: 'info' });
   const [zoomedImage, setZoomedImage] = useState(false);
@@ -113,16 +116,17 @@ const Transactions = () => {
   };
 
   const handleVerifyAction = async (type) => {
+    if (verificationLoading) return;
     if (!adminNote.trim() && type === 'Needs Update') {
-      setError('Please enter remarks to send to the student/alumni.');
+      setError('Select or enter a reason the receipt needs updating.');
       return;
     }
 
+    setVerificationLoading(true);
     try {
       const statusMap = {
         'Approve': 'Completed',
-        'Needs Update': 'Needs Update',
-        'Reject': 'Rejected'
+        'Needs Update': 'Needs Update'
       };
 
       await api.put(`/transactions/${selectedTx.transactionId}/verify`, {
@@ -132,18 +136,20 @@ const Transactions = () => {
 
       const messages = {
         'Approve': `Payment approved for ${selectedTx.name}.`,
-        'Needs Update': `Update requested for ${selectedTx.name}.`,
-        'Reject': `Payment rejected for ${selectedTx.name}.`
+        'Needs Update': `Receipt needs update for ${selectedTx.name}. The user can resubmit it.`
       };
 
       triggerToast(messages[type], 'success');
       setSelectedTx(null);
       setAdminNote('');
+      setReceiptReasonOption('');
       setError('');
       fetchTransactions();
     } catch (err) {
       console.error('Verification error:', err);
-      triggerToast('Failed to update payment. Please try again.', 'error');
+      triggerToast(err.response?.data?.message || 'Failed to update payment. Please try again.', 'error');
+    } finally {
+      setVerificationLoading(false);
     }
   };
 
@@ -196,7 +202,7 @@ const Transactions = () => {
       const matchesProgram = filterProgram === 'All' || programLevel === filterProgram;
       const matchesUserStatus = filterUserStatus === 'All' || userStatus === filterUserStatus;
 
-      const txDate = new Date(tx.date);
+      const txDate = new Date(tx.lastSubmittedAt || tx.updatedAt || tx.date);
       const start = startDate ? new Date(startDate) : null;
       const end = endDate ? new Date(endDate) : null;
       if (end) end.setHours(23, 59, 59, 999); // Bug 8: include entire end day
@@ -209,8 +215,8 @@ const Transactions = () => {
       
       // Special handling for nested or specific types
       if (sortConfig.key === 'date') {
-          valA = new Date(valA).getTime();
-          valB = new Date(valB).getTime();
+          valA = new Date(a.lastSubmittedAt || a.updatedAt || a.date).getTime();
+          valB = new Date(b.lastSubmittedAt || b.updatedAt || b.date).getTime();
       } else if (sortConfig.key === 'name' || sortConfig.key === 'payerName') {
           valA = valA ? valA.toLowerCase() : '';
           valB = valB ? valB.toLowerCase() : '';
@@ -483,7 +489,7 @@ const Transactions = () => {
                     <tr><td colSpan="9" className="px-6 py-20 text-center text-gray-400 italic">Loading payments...</td></tr>
                   ) : paginatedTransactions.length > 0 ? (
                     paginatedTransactions.map((tx, idx) => {
-                      const txDate = new Date(tx.date);
+                      const txDate = new Date(tx.lastSubmittedAt || tx.updatedAt || tx.date);
                       const formattedDate = txDate.toLocaleDateString('en-US', {
                         year: 'numeric', month: '2-digit', day: '2-digit'
                       });
@@ -499,7 +505,8 @@ const Transactions = () => {
                               {tx.paymentMode}
                             </span>
                           </td>
-                          <td className="px-6 py-4 text-gray-600">{formattedDate}</td>
+                          <td className="px-6 py-4 text-gray-600">{formattedDate}{tx.receiptHistory?.length > 0 &&
+                            <span className="block text-blue-700 font-bold">Resubmitted #{tx.receiptHistory.length + 1}</span>}</td>
                           <td className="px-6 py-4">
                             <div className="flex justify-center">
                               <span className={`min-w-[120px] text-center px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${getStatusStyle(tx.status)}`}>
@@ -618,7 +625,7 @@ const Transactions = () => {
                           <td className="px-6 py-4 text-gray-600 font-mono">{refund.transactionId}</td>
                           <td className="px-6 py-4 font-bold text-gray-800">{displayName}</td>
                           <td className="px-6 py-4 text-gray-700 font-semibold">₱{refund.amount || '0.00'}</td>
-                          <td className="px-6 py-4 text-gray-600">{refund.reason === 'Other' ? refund.otherReason : refund.reason}</td>
+                          <td className="px-6 py-4 text-gray-600">{refund.userReason || (refund.reason === 'Other' ? refund.otherReason : refund.reason)}</td>
                           <td className="px-6 py-4 text-gray-600">{formattedDate}</td>
                           <td className="px-6 py-4">
                             <div className="flex justify-center">
@@ -667,6 +674,7 @@ const Transactions = () => {
               <div className="bg-[#1D2D44] p-6 text-white flex justify-between items-center">
                 <div>
                   <h3 className="text-xl font-bold">Verify Payment Receipt</h3>
+                  {selectedTx.receiptHistory?.length > 0 && <p className="text-xs font-bold text-blue-200 mt-1">Resubmitted receipt #{selectedTx.receiptHistory.length + 1} — latest receipt shown</p>}
                   <p className="text-xs opacity-70 mt-1 uppercase tracking-widest font-semibold">
                     {selectedTx.transactionId} • {selectedTx.payerName || selectedTx.name} • via {selectedTx.paymentMode}
                   </p>
@@ -746,12 +754,23 @@ const Transactions = () => {
                   {/* Admin Remarks */}
                   <div className="flex-1">
                     <label className="block text-[11px] font-bold text-gray-500 uppercase mb-2 tracking-wider">
-                      Admin Remarks
+                      Update Reason
                     </label>
+                    <select className="w-full mb-2 p-3 border border-gray-200 rounded-xl text-sm"
+                      value={receiptReasonOption} onChange={(e) => {
+                        setReceiptReasonOption(e.target.value);
+                        setAdminNote(e.target.value === 'Other' ? '' : e.target.value);
+                        setError('');
+                      }}>
+                      <option value="">Select update reason or enter one below</option>
+                      {receiptRejectionReasons.map((reason) => <option key={reason} value={reason}>{reason}</option>)}
+                      <option value="Other">Other reason</option>
+                    </select>
                     <textarea
                       className={`w-full h-32 p-4 border rounded-xl text-sm outline-none transition-all resize-none ${error ? 'border-red-500 bg-red-50' : 'border-gray-200 focus:border-[#1D2D44]'
                         }`}
-                      placeholder="Enter remarks (required for requesting updates or rejections)..."
+                      placeholder="Explain why this receipt cannot be verified"
+                      maxLength={500}
                       value={adminNote}
                       onChange={(e) => { setAdminNote(e.target.value); setError(''); }}
                     />
@@ -771,19 +790,15 @@ const Transactions = () => {
                 </span>
                 <div className="flex gap-3">
                   <button
-                    onClick={() => handleVerifyAction('Reject')}
-                    className="px-5 py-2.5 rounded-full border-2 border-red-500 text-red-500 font-bold text-xs uppercase hover:bg-red-50 transition-all tracking-widest flex items-center gap-2"
-                  >
-                    <XCircle size={14} /> Reject
-                  </button>
-                  <button
                     onClick={() => handleVerifyAction('Needs Update')}
-                    className="px-5 py-2.5 rounded-full border-2 border-amber-500 text-amber-600 font-bold text-xs uppercase hover:bg-amber-50 transition-all tracking-widest flex items-center gap-2"
+                    disabled={verificationLoading}
+                    className="px-5 py-2.5 rounded-full border-2 border-amber-600 text-amber-700 font-bold text-xs uppercase hover:bg-amber-50 transition-all tracking-widest flex items-center gap-2"
                   >
-                    <RefreshCw size={14} /> Request Update
+                    <XCircle size={14} /> Needs Update
                   </button>
                   <button
                     onClick={() => handleVerifyAction('Approve')}
+                    disabled={verificationLoading}
                     className="px-8 py-2.5 rounded-full bg-[#1D2D44] text-white font-bold text-xs uppercase hover:bg-[#152030] shadow-md flex items-center gap-2 tracking-widest"
                   >
                     <Send size={14} /> Approve
@@ -859,7 +874,7 @@ const Transactions = () => {
                     </div>
                     <div className="flex justify-between">
                       <span>Reason</span>
-                      <span className="text-gray-700">{selectedRefund.reason === 'Other' ? selectedRefund.otherReason : selectedRefund.reason}</span>
+                      <span className="text-gray-700">{selectedRefund.userReason || (selectedRefund.reason === 'Other' ? selectedRefund.otherReason : selectedRefund.reason)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Submitted</span>
@@ -947,7 +962,7 @@ function getStatusStyle(status) {
   switch (status) {
     case 'Pending Verification': return 'bg-[#FCF7B0] text-[#857A00]';
     case 'Completed': return 'bg-[#C6E7FF] text-[#2D6A8E]';
-    case 'Needs Update': return 'bg-[#FFC1C1] text-[#A32A2A]';
+    case 'Needs Update': return 'bg-amber-100 text-amber-700';
     case 'Rejected': return 'bg-[#FFD1D1] text-[#F04438]';
     case 'Refunded': return 'bg-[#E8D5F5] text-[#7C3AED]';
     default: return 'bg-gray-100 text-gray-600';

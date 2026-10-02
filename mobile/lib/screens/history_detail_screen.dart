@@ -1,3 +1,4 @@
+import '../widgets/request_status_tracker.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -85,10 +86,10 @@ class _HistoryDetailScreenState extends State<HistoryDetailScreen> {
                           if (item.requestId.isNotEmpty)
                             _row('Request ID', item.requestId),
                           _row('Document', item.title),
+                          _row('Processing', item.processingOption.toUpperCase()),
                           _row('Purpose', item.purpose),
                           _row(
                             'Date requested',
-                            DateFormat('MMM d, y').format(item.date),
                             DateFormat('MMM d, y  h:mm a').format(item.date),
                           ),
                           if (item.datePaid != null)
@@ -110,6 +111,8 @@ class _HistoryDetailScreenState extends State<HistoryDetailScreen> {
                       ),
                       const SizedBox(height: 16),
                       _buildStatusCard(),
+                      const SizedBox(height: 16),
+                      RequestStatusTracker(status: item.status, createdAt: item.date, remarks: item.remarks, history: item.statusHistory),
                       if (item.isRejected) ...[
                         const SizedBox(height: 16),
                         _buildRemarksCard(),
@@ -182,29 +185,33 @@ class _HistoryDetailScreenState extends State<HistoryDetailScreen> {
   }
 
   Widget _buildStatusCard() {
-    final statusColor =
-        item.isApproved ? const Color(0xFF218739) : const Color(0xFFB42318);
-    final message = item.isApproved
-        ? "This document has been processed and released by the Registrar's Office."
-        : item.hasRefundRequest
-            ? 'This request was rejected. See the latest refund update below.'
-            : item.canRequestRefund
-                ? 'This request was rejected after payment was received. You can request a refund below.'
-                : 'This request was rejected. Review the office remarks below for more information.';
+    final isReadyToClaim = item.displayStatus == 'READY TO CLAIM' ||
+        item.status.trim().toLowerCase() == 'ready to claim' ||
+        item.status.trim().toLowerCase() == 'released';
+    final isRefundApproved = item.displayStatus == 'REFUND APPROVED' ||
+        item.normalizedRefundStatus.contains('approv');
     final isClaimed = item.status.trim().toUpperCase() == 'CLAIMED';
+    final isApprovedOrReady =
+        item.isApproved || isReadyToClaim || isRefundApproved;
+    final statusColor =
+        isApprovedOrReady ? const Color(0xFF218739) : const Color(0xFFB42318);
     final message = isClaimed
         ? 'This document has been successfully claimed.'
-        : item.isApproved
-            ? "This document has been processed and released by the Registrar's Office."
-            : item.hasRefundRequest
-                ? 'This request was rejected. See the latest refund update below.'
-                : item.canRequestRefund
-                    ? 'This request was rejected after payment was received. You can request a refund below.'
-                    : 'This request was rejected. Review the office remarks below for more information.';
+        : isReadyToClaim
+            ? "Your document is ready for pickup/claim! Please proceed to the Registrar's Office to claim your document."
+            : isRefundApproved
+                ? 'Your refund request has been approved.'
+                : item.isApproved
+                    ? "This document has been processed and released by the Registrar's Office."
+                    : item.hasRefundRequest
+                        ? 'This request was rejected. See the latest refund update below.'
+                        : item.canRequestRefund
+                            ? 'Your request was rejected. You are eligible to request a refund.'
+                            : 'This request was rejected. Review the office remarks below for more information.';
 
     return _buildCard(
       title: 'Final status',
-      icon: item.isApproved
+      icon: isApprovedOrReady
           ? Icons.check_circle_outline_rounded
           : Icons.cancel_outlined,
       children: [
@@ -218,14 +225,14 @@ class _HistoryDetailScreenState extends State<HistoryDetailScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
-                item.isApproved ? Icons.check_circle : Icons.cancel,
+                isApprovedOrReady ? Icons.check_circle : Icons.cancel,
                 color: statusColor,
                 size: 18,
               ),
               const SizedBox(width: 7),
               Flexible(
                 child: Text(
-                  item.status,
+                  item.displayStatus,
                   style: TextStyle(
                     color: statusColor,
                     fontSize: 13,

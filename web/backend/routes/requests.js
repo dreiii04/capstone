@@ -2,10 +2,13 @@ const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
 const Request = require('../models/Request');
+const Transaction = require('../models/Transaction');
 const ActivityLog = require('../models/ActivityLog');
 const { protect, registrarOrSuperAdmin } = require('../middleware/authMiddleware');
 const { isEndUser } = require('../services/sessionService');
 const { ownerQuery } = require('../utils/ownership');
+const { createProcessingEstimate } = require('../services/processingEstimate');
+const { ensureLegacyProcessingEstimate } = require('../services/legacyProcessingEstimate');
 const {
   getDocumentPrice,
   DEFAULT_PROCESSING_FEE,
@@ -61,7 +64,8 @@ router.get('/', protect, async (req, res) => {
     // Dynamically enrich requests with student profile details (ID, Course, Year) for seamless UX
     const enrichedRequests = await Promise.all(
       requests.map(async (r) => {
-        const request = await enrichRequestWithStudentData(r.toObject());
+        const stored = await ensureLegacyProcessingEstimate(r);
+        const request = await enrichRequestWithStudentData(stored.toObject());
         return {
           ...request,
           documentFile: request.hasDocument &&
@@ -83,6 +87,10 @@ router.get('/', protect, async (req, res) => {
 router.put('/:id', protect, registrarOrSuperAdmin, async (req, res) => {
     try {
         const { status, forceOverride, rejectionReason } = req.body;
+        if (status === 'Rejected' &&
+            (typeof rejectionReason !== 'string' || !rejectionReason.trim() || rejectionReason.length > 500)) {
+            return res.status(400).json({ message: 'A request rejection reason is required.' });
+        }
 
         // Force override (payment bypass) requires super admin role
         if (forceOverride && req.user.role !== 'super admin') {
@@ -91,12 +99,26 @@ router.put('/:id', protect, registrarOrSuperAdmin, async (req, res) => {
 
         const request = await Request.findOne({ requestId: req.params.id });
         if (!request) return res.status(404).json({ message: 'Request not found' });
+        if (status === 'Rejected') {
+            const payment = await Transaction.findOne({ requestId: request.requestId });
+            if (payment && payment.status !== 'Completed') {
+                return res.status(409).json({
+                    message: 'Review the receipt before rejecting the document request.',
+                });
+            }
+        }
 
         if (status) {
             const allowedStatuses = new Set([
+                'Pending for Payment',
                 'Pending',
                 'In Process',
                 'Released',
+                'Ready to Claim',
+                'Claimed',
+                'Refund Approved',
+                'Refunded',
+                'Completed',
                 'Rejected',
             ]);
             if (!allowedStatuses.has(status)) {
@@ -104,10 +126,16 @@ router.put('/:id', protect, registrarOrSuperAdmin, async (req, res) => {
             }
 
             const normalTransitions = {
-                Pending: new Set(['Rejected']),
-                'In Process': new Set(['Released', 'Rejected']),
-                Released: new Set(),
-                Rejected: new Set(),
+                'Pending for Payment': new Set(['Pending', 'Rejected']),
+                Pending: new Set(['In Process', 'Rejected']),
+                'In Process': new Set(['Released', 'Ready to Claim', 'Rejected']),
+                Released: new Set(['Claimed', 'Completed']),
+                'Ready to Claim': new Set(['Claimed', 'Completed']),
+                Claimed: new Set(),
+                'Refund Approved': new Set(['Refunded']),
+                Refunded: new Set(),
+                Completed: new Set(),
+                Rejected: new Set(['Refund Approved', 'Refunded']),
             };
             const statusChanged = status !== request.status;
             const transitionAllowed = normalTransitions[request.status]?.has(status);
@@ -116,7 +144,8 @@ router.put('/:id', protect, registrarOrSuperAdmin, async (req, res) => {
                     message: `Request cannot move from ${request.status} to ${status}.`,
                 });
             }
-            if (status === 'Released' && !request.hasDocument) {
+            const isReleasing = status === 'Released' || status === 'Ready to Claim';
+            if (isReleasing && !request.hasDocument) {
                 return res.status(409).json({
                     message: 'Attach the completed document before releasing the request.',
                 });
@@ -124,13 +153,27 @@ router.put('/:id', protect, registrarOrSuperAdmin, async (req, res) => {
             const documentType = String(request.documentType || '').toLowerCase();
             const blockchainRequired = documentType.includes('transcript') ||
                 documentType.includes('tor') || documentType.includes('diploma');
-            if (status === 'Released' && blockchainRequired &&
+            if (isReleasing && blockchainRequired &&
                 request.blockchainStatus !== 'Recorded') {
                 return res.status(409).json({
                     message: 'Record the issued document on the blockchain before releasing it.',
                 });
             }
+            if (status === 'In Process' && statusChanged && !request.processingStartedAt) {
+                if (request.estimatedProcessingEnd) {
+                    request.processingStartedAt = new Date();
+                } else {
+                    Object.assign(request, createProcessingEstimate(request.documentType));
+                }
+            }
             request.status = status;
+            if (statusChanged) {
+                request.statusHistory.push({
+                    status, at: status === 'In Process' && request.processingStartedAt
+                        ? request.processingStartedAt : new Date(),
+                });
+            }
+            if (status === 'Claimed') request.claimedAt = new Date();
             if (status === 'In Process') request.rejectionReason = '';
         }
         if (rejectionReason !== undefined) request.rejectionReason = rejectionReason;
@@ -154,7 +197,7 @@ router.put('/:id', protect, registrarOrSuperAdmin, async (req, res) => {
             try {
                 const Notification = require('../models/Notification');
                 let message = `Your request #${request.requestId} for ${request.documentType} is now ${status}!`;
-                if (status === 'Released') {
+                if (status === 'Released' || status === 'Ready to Claim') {
                     message = `Your request #${request.requestId} for ${request.documentType} is ready for pickup!`;
                 } else if (status === 'Rejected' && request.rejectionReason) {
                     const readableReason = request.rejectionReason === 'incomplete' ? 'Incomplete Requirements' :
@@ -241,7 +284,7 @@ router.post('/', protect, async (req, res) => {
       studentId,
       course,
       yearLevel,
-      status: 'Pending',
+      status: 'Pending for Payment',
       documentType,
       subDocumentType: req.body.subDocumentType || '',
       purpose: req.body.purpose || '',

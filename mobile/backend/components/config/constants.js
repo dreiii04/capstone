@@ -28,7 +28,7 @@ export const commonUploadLimits = Object.freeze({
 
 export const emailRegex = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
 export const passwordRegex =
-  /^(?=\S{8,72}$)(?=.*[A-Z])(?=.*[a-z])(?=.*[0-9])(?=.*[!@#$%^&*(),.?":{}|<>]).*$/;
+  /^(?=\S{8,1024}$)(?=.*[A-Z])(?=.*[a-z])(?=.*[0-9])(?=.*[!@#$%^&*(),.?":{}|<>]).*$/;
 export const dummyPasswordHash =
   '$2a$12$i8ZFwZWuQesbxZnbw5tSrOx3QPXtqFaypm3LBKf2ZCBYvPo3ZOWie';
 export const personNameRegex = /^[\p{L}][\p{L}\p{M} .'-]*$/u;
@@ -54,7 +54,11 @@ export const terminalWorkflowStatuses = new Set([
   'canceled',
   'refunded',
   'claimed',
+  'ready_to_claim',
+  'refund_approved',
 ]);
+
+export { isDocumentAllowedForRole, documentEligibilityByRole } from '../services/eligibility.service.js';
 
 export const refundStatusAliases = new Map([
   ['pending', 'pending'],

@@ -78,7 +78,9 @@ class _SplashScreenState extends State<SplashScreen>
         );
         try {
           await Future.wait([
-            MongoDataApiService.instance.initialize(),
+            MongoDataApiService.instance.initialize().timeout(
+              const Duration(seconds: 3),
+            ),
             displayTimer,
           ]);
         } catch (_) {

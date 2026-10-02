@@ -88,7 +88,7 @@ class MongoRateLimitStore {
 
 function accountAndIpRateLimitKey(req) {
   const ip = String(req.ip || req.socket?.remoteAddress || 'unknown');
-  const email = String(req.body?.email || '').trim().toLowerCase() ||
+  const email = String(req.body?.email || req.body?.schoolEmail || '').trim().toLowerCase() ||
     'invalid-account';
   return `${ip}|${email}`;
 }
@@ -149,4 +149,9 @@ export const writeLimiter = makeRateLimiter({
   namespace: 'write',
   windowMs: 60 * 60 * 1000,
   max: 60,
+});
+
+// Deliberately IP-scoped: changing the queried email must not evade the limit.
+export const emailAvailabilityLimiter = makeRateLimiter({
+  namespace: 'email-availability', windowMs: 15 * 60 * 1000, max: 15,
 });

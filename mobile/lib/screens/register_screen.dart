@@ -13,6 +13,9 @@ typedef RegisterOtpRequester = Future<OtpChallenge> Function({
   required String lastName,
   required String email,
   required String password,
+  String? studentId,
+  String? schoolEmail,
+  String? yearLevel,
   String? program,
   String? yearGraduated,
   String? lastYearAttended,
@@ -46,6 +49,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _formKey = GlobalKey<FormState>();
   final _firstNameController = TextEditingController();
   final _lastNameController = TextEditingController();
+  final _studentIdController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
@@ -56,9 +60,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _nameRegex = RegExp(
     r"^[A-Za-zÀ-ÖØ-öø-ÿĀ-žÑñ][A-Za-zÀ-ÖØ-öø-ÿĀ-žÑñ .’'\-]*$",
   );
-  final _programOptions = const [
+  static const _alumniProgramOptions = [
+    'Bachelor of Arts in Religious Education (ABREED)',
+    'Bachelor of Secondary Education (BSED) Major in English',
+    'Bachelor of Secondary Education (BSED) Major in Mathematics',
+    'Bachelor of Secondary Education (BSED) Major in Science',
+    'Bachelor of Elementary Education (BEED)',
+    'Bachelor of Science in Business Administration (BSBA) Major in Financial Management',
+    'Bachelor of Science in Office Administration (BSOA)',
+    'Bachelor of Science in Computer Science (BSCS)',
+  ];
+
+  static const _defaultProgramOptions = [
     'BSIT',
-    'BSIT-MWA',
     'BSCS',
     'BSIS',
     'BSECE',
@@ -70,8 +84,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
     'BEED',
     'BSED',
   ];
+
+  static const _shsStrandOptions = [
+    'Accounting, Business and Management (ABM)',
+    'Science, Technology, Engineering, and Mathematics (STEM)',
+    'Humanities and Social Sciences (HUMSS)',
+    'General Academic Strand (GAS)',
+    'Information-Communication Technology (ICT)',
+    'Technological And Livelihood Education (TLE)',
+  ];
+
+  List<String> get _programOptions =>
+      _isAlumni ? _alumniProgramOptions : _defaultProgramOptions;
   late final List<String> _graduationYears;
   String? _studentStatus;
+  String? _studentGradeLevel;
   String? _educationalLevel;
   String? _yearGraduated;
   String? _lastYearAttended;
@@ -83,8 +110,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _isConfirmPasswordObscure = true;
   bool _isSubmitting = false;
 
+  bool get _isStudent => _studentStatus == 'student';
+  bool get _isStudentShs =>
+      _isStudent &&
+      (_studentGradeLevel == 'Grade 11' || _studentGradeLevel == 'Grade 12');
+  bool get _isStudentCollege =>
+      _isStudent && (_studentGradeLevel?.endsWith(' Year') ?? false);
   bool get _isAlumni => _studentStatus == 'alumni';
   bool get _isFormerStudent => _studentStatus == 'former_student';
+  bool get _isShs => _educationalLevel == 'shs';
   bool get _isBasicEducation =>
       _educationalLevel == 'jhs' || _educationalLevel == 'shs';
   bool get _isPostgraduate =>
@@ -92,6 +126,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool get _requiresProgram =>
       _educationalLevel == 'bachelors' || _isPostgraduate;
   String get _resolvedProgram {
+    if (_isStudent) return _program ?? '';
+    if (_isShs) return _program ?? '';
     if (!_requiresProgram) return '';
     return _isPostgraduate
         ? _postgraduateProgramController.text.trim()
@@ -119,6 +155,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _passwordStrengthNotifier.dispose();
     _firstNameController.dispose();
     _lastNameController.dispose();
+    _studentIdController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
@@ -142,13 +179,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   String? _validateEmail(String? value) {
     final email = value?.trim() ?? '';
-    if (email.isEmpty) return 'Enter your email';
+    if (email.isEmpty) {
+      return _isStudent ? 'Enter your school email' : 'Enter your email';
+    }
     if (!_emailRegex.hasMatch(email)) return 'Enter a valid email address';
     return null;
   }
 
   bool _hasMinimumLength(String value) =>
-      value.length >= 8 && value.length <= 72;
+      value.length >= 8 && value.length <= 1024;
   bool _hasUpperAndLower(String value) =>
       RegExp(r'[A-Z]').hasMatch(value) && RegExp(r'[a-z]').hasMatch(value);
   bool _hasNumber(String value) => RegExp(r'[0-9]').hasMatch(value);
@@ -168,7 +207,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final password = value ?? '';
     if (password.isEmpty) return 'Enter a password';
     if (!_isStrongPassword(password)) {
-      return 'Use 8-72 chars with upper/lowercase, number, symbol, and no spaces';
+      return 'Use 8-1024 chars with upper/lowercase, number, symbol, and no spaces';
     }
     return null;
   }
@@ -187,42 +226,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     setState(() => _isSubmitting = true);
     try {
       final email = _emailController.text.trim().toLowerCase();
-      final requester = widget.otpRequester;
-      final challenge = requester != null
-          ? await requester(
-              studentStatus: _studentStatus!,
-              educationalLevel: _educationalLevel!,
-              firstName: _firstNameController.text.trim(),
-              lastName: _lastNameController.text.trim(),
-              email: email,
-              password: _passwordController.text,
-              program: _requiresProgram ? _resolvedProgram : null,
-              yearGraduated: _isAlumni ? _yearGraduated : null,
-              lastYearAttended: _isFormerStudent ? _lastYearAttended : null,
-              lastGradeLevelCompleted: _isFormerStudent && _isBasicEducation
-                  ? _lastGradeLevelCompleted
-                  : null,
-              lastYearLevelCompleted: _isFormerStudent && !_isBasicEducation
-                  ? _lastYearLevelCompleted
-                  : null,
-            )
-          : await MongoDataApiService.instance.requestRegisterOtp(
-              studentStatus: _studentStatus!,
-              educationalLevel: _educationalLevel!,
-              firstName: _firstNameController.text.trim(),
-              lastName: _lastNameController.text.trim(),
-              email: email,
-              password: _passwordController.text,
-              program: _requiresProgram ? _resolvedProgram : null,
-              yearGraduated: _isAlumni ? _yearGraduated : null,
-              lastYearAttended: _isFormerStudent ? _lastYearAttended : null,
-              lastGradeLevelCompleted: _isFormerStudent && _isBasicEducation
-                  ? _lastGradeLevelCompleted
-                  : null,
-              lastYearLevelCompleted: _isFormerStudent && !_isBasicEducation
-                  ? _lastYearLevelCompleted
-                  : null,
-            );
+      final challenge = await _requestOtp(email);
 
       if (!mounted) return;
       final verified = await _showOtpVerificationDialog(
@@ -251,32 +255,106 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
+  /// Requests a fresh OTP for [email] using the current registration payload.
+  Future<OtpChallenge> _requestOtp(String email) {
+    final requester = widget.otpRequester;
+    if (requester != null) {
+      return requester(
+        studentStatus: _studentStatus!,
+        educationalLevel: _isStudent
+            ? (_isStudentShs
+                ? 'shs'
+                : _isStudentCollege
+                    ? 'bachelors'
+                    : 'jhs')
+            : _educationalLevel ?? '',
+        firstName: _firstNameController.text.trim(),
+        lastName: _lastNameController.text.trim(),
+        email: email,
+        password: _passwordController.text,
+        studentId: _isStudent ? _studentIdController.text.trim() : null,
+        schoolEmail: _isStudent ? email : null,
+        yearLevel: _isStudent ? _studentGradeLevel : null,
+        program:
+            (_isStudentShs || _isStudentCollege || _requiresProgram || _isShs)
+                ? _resolvedProgram
+                : null,
+        yearGraduated: _isAlumni ? _yearGraduated : null,
+        lastYearAttended: _isFormerStudent ? _lastYearAttended : null,
+        lastGradeLevelCompleted: _isFormerStudent && _isBasicEducation
+            ? _lastGradeLevelCompleted
+            : null,
+        lastYearLevelCompleted: _isFormerStudent && !_isBasicEducation
+            ? _lastYearLevelCompleted
+            : null,
+      );
+    }
+    return MongoDataApiService.instance.requestRegisterOtp(
+      studentStatus: _studentStatus!,
+      educationalLevel: _isStudent
+          ? (_isStudentShs
+              ? 'shs'
+              : _isStudentCollege
+                  ? 'bachelors'
+                  : 'jhs')
+          : _educationalLevel ?? '',
+      firstName: _firstNameController.text.trim(),
+      lastName: _lastNameController.text.trim(),
+      email: email,
+      password: _passwordController.text,
+      studentId: _isStudent ? _studentIdController.text.trim() : null,
+      schoolEmail: _isStudent ? email : null,
+      yearLevel: _isStudent ? _studentGradeLevel : null,
+      program:
+          (_isStudentShs || _isStudentCollege || _requiresProgram || _isShs)
+              ? _resolvedProgram
+              : null,
+      yearGraduated: _isAlumni ? _yearGraduated : null,
+      lastYearAttended: _isFormerStudent ? _lastYearAttended : null,
+      lastGradeLevelCompleted: _isFormerStudent && _isBasicEducation
+          ? _lastGradeLevelCompleted
+          : null,
+      lastYearLevelCompleted: _isFormerStudent && !_isBasicEducation
+          ? _lastYearLevelCompleted
+          : null,
+    );
+  }
+
   Future<bool> _showOtpVerificationDialog({
     required String email,
     required String challengeToken,
     String? developmentOtp,
   }) async {
+    // Mutable references so the resend callback can refresh the token.
+    String currentChallengeToken = challengeToken;
+    String? currentDevOtp = developmentOtp;
+
     final verified = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (_) => _RegistrationOtpDialog(
         email: email,
-        developmentOtp: developmentOtp,
+        developmentOtp: currentDevOtp,
         onVerify: (otp) async {
           final verifier = widget.otpVerifier;
           if (verifier != null) {
             await verifier(
               email: email,
               otp: otp,
-              challengeToken: challengeToken,
+              challengeToken: currentChallengeToken,
             );
           } else {
             await MongoDataApiService.instance.verifyRegisterOtp(
               email: email,
               otp: otp,
-              challengeToken: challengeToken,
+              challengeToken: currentChallengeToken,
             );
           }
+        },
+        onResend: () async {
+          final newChallenge = await _requestOtp(email);
+          currentChallengeToken = newChallenge.challengeToken;
+          currentDevOtp = kDebugMode ? newChallenge.developmentOtp : null;
         },
       ),
     );
@@ -286,6 +364,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool get _hasEnteredData {
     return _firstNameController.text.trim().isNotEmpty ||
         _lastNameController.text.trim().isNotEmpty ||
+        _studentIdController.text.trim().isNotEmpty ||
         _emailController.text.trim().isNotEmpty ||
         _passwordController.text.isNotEmpty ||
         _confirmPasswordController.text.isNotEmpty ||
@@ -364,208 +443,243 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ],
               ),
             ),
-          Expanded(
-            flex: 6,
-            child: Container(
-              width: double.infinity,
-              decoration: const BoxDecoration(
-                color: _primaryBlue,
-                borderRadius: BorderRadius.only(
-                  topLeft: Radius.circular(30),
-                  topRight: Radius.circular(30),
+            Expanded(
+              flex: 6,
+              child: Container(
+                width: double.infinity,
+                decoration: const BoxDecoration(
+                  color: _primaryBlue,
+                  borderRadius: BorderRadius.only(
+                    topLeft: Radius.circular(30),
+                    topRight: Radius.circular(30),
+                  ),
                 ),
-              ),
-              child: Form(
-                key: _formKey,
-                autovalidateMode: AutovalidateMode.disabled,
-                child: AutofillGroup(
-                  child: SingleChildScrollView(
-                    keyboardDismissBehavior:
-                        ScrollViewKeyboardDismissBehavior.onDrag,
-                    padding: EdgeInsets.symmetric(
-                      horizontal:
-                          MediaQuery.sizeOf(context).shortestSide >= 600
-                              ? 36.0
-                              : 25.0,
-                      vertical: 30,
-                    ),
-                    child: Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 560),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            const Text(
-                              'Create an Account',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 22,
-                                    fontWeight: FontWeight.bold,
-                                  ),
+                child: Form(
+                  key: _formKey,
+                  autovalidateMode: AutovalidateMode.disabled,
+                  child: AutofillGroup(
+                    child: SingleChildScrollView(
+                      keyboardDismissBehavior:
+                          ScrollViewKeyboardDismissBehavior.onDrag,
+                      padding: EdgeInsets.symmetric(
+                        horizontal:
+                            MediaQuery.sizeOf(context).shortestSide >= 600
+                                ? 36.0
+                                : 25.0,
+                        vertical: 30,
+                      ),
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 560),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              const Text(
+                                'Create an Account',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.bold,
                                 ),
-                                const SizedBox(height: 25),
+                              ),
+                              const SizedBox(height: 25),
+                              _buildStudentStatusField(),
+                              const SizedBox(height: 15),
+                              if (_isStudent) ...[
                                 _textField(
-                                  key: const Key('first_name_field'),
-                                  controller: _firstNameController,
-                                  hint: 'First Name',
-                                  validator: (value) =>
-                                      _validateName(value, 'first name'),
-                                  textCapitalization: TextCapitalization.words,
-                                  autofillHints: const [
-                                    AutofillHints.givenName,
-                                  ],
-                                ),
-                                const SizedBox(height: 15),
-                                _textField(
-                                  key: const Key('last_name_field'),
-                                  controller: _lastNameController,
-                                  hint: 'Last Name',
-                                  validator: (value) =>
-                                      _validateName(value, 'last name'),
-                                  textCapitalization: TextCapitalization.words,
-                                  autofillHints: const [
-                                    AutofillHints.familyName,
-                                  ],
-                                ),
-                                const SizedBox(height: 15),
-                                _textField(
-                                  key: const Key('registration_email_field'),
-                                  controller: _emailController,
-                                  hint: 'Email',
-                                  keyboardType: TextInputType.emailAddress,
-                                  validator: _validateEmail,
-                                  autofillHints: const [AutofillHints.email],
-                                ),
-                                const SizedBox(height: 15),
-                                _buildStudentStatusField(),
-                                AnimatedSwitcher(
-                                  duration: const Duration(milliseconds: 180),
-                                  child: _buildAcademicFields(),
-                                ),
-                                const SizedBox(height: 15),
-                                _textField(
-                                  key: const Key(
-                                    'registration_password_field',
-                                  ),
-                                  controller: _passwordController,
-                                  hint: 'Password',
-                                  obscureText: _isPasswordObscure,
-                                  validator: _validatePassword,
-                                  autofillHints: const [
-                                    AutofillHints.newPassword,
-                                  ],
-                                  suffixIcon: _visibilityButton(
-                                    obscure: _isPasswordObscure,
-                                    onPressed: () => setState(
-                                      () => _isPasswordObscure =
-                                          !_isPasswordObscure,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                ValueListenableBuilder<String>(
-                                  valueListenable: _passwordStrengthNotifier,
-                                  builder: (context, strength, _) {
-                                    return Text(
-                                      'Password strength: $strength',
-                                      style: const TextStyle(
-                                        color: Colors.white70,
-                                        fontSize: 12,
-                                      ),
-                                    );
+                                  key: const Key('student_id_field'),
+                                  controller: _studentIdController,
+                                  hint: 'Student ID',
+                                  validator: (value) {
+                                    final id = value?.trim() ?? '';
+                                    if (id.isEmpty) {
+                                      return 'Enter your student ID';
+                                    }
+                                    if (!RegExp(
+                                            r'^[A-Za-z0-9][A-Za-z0-9-]{3,29}$')
+                                        .hasMatch(id)) {
+                                      return 'Use 4-30 letters, numbers, or hyphens';
+                                    }
+                                    return null;
                                   },
                                 ),
                                 const SizedBox(height: 15),
-                                _textField(
-                                  key: const Key('confirm_password_field'),
-                                  controller: _confirmPasswordController,
-                                  hint: 'Confirm Password',
-                                  obscureText: _isConfirmPasswordObscure,
-                                  validator: _validatePasswordConfirmation,
-                                  autofillHints: const [
-                                    AutofillHints.newPassword,
-                                  ],
-                                  textInputAction: TextInputAction.done,
-                                  suffixIcon: _visibilityButton(
-                                    obscure: _isConfirmPasswordObscure,
-                                    onPressed: () => setState(
-                                      () => _isConfirmPasswordObscure =
-                                          !_isConfirmPasswordObscure,
-                                    ),
-                                  ),
-                                  onFieldSubmitted: (_) => _handleRegister(),
-                                ),
-                                const SizedBox(height: 8),
-                                _buildTermsField(),
-                                const SizedBox(height: 25),
-                                SizedBox(
-                                  height: 55,
-                                  child: ElevatedButton(
-                                    key: const Key('create_account_button'),
-                                    onPressed:
-                                        _isSubmitting ? null : _handleRegister,
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: _darkNavy,
-                                      foregroundColor: Colors.white,
-                                      disabledBackgroundColor:
-                                          const Color(0xFF9EABB3),
-                                      elevation: 0,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                    ),
-                                    child: _isSubmitting
-                                        ? const SizedBox(
-                                            width: 22,
-                                            height: 22,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                              color: Colors.white,
-                                            ),
-                                          )
-                                        : const Text(
-                                            'Register',
-                                            style: TextStyle(
-                                              fontSize: 24,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                  ),
-                                ),
-                                const SizedBox(height: 20),
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    const Flexible(
-                                      child: Text(
-                                        'Already have an account? ',
-                                        style: TextStyle(
-                                          color: Colors.white70,
-                                          fontSize: 13,
-                                        ),
-                                      ),
-                                    ),
-                                    TextButton(
-                                      onPressed: () => Navigator.pop(context),
-                                      style: TextButton.styleFrom(
-                                        padding: EdgeInsets.zero,
-                                        minimumSize: Size.zero,
-                                        tapTargetSize:
-                                            MaterialTapTargetSize.shrinkWrap,
-                                      ),
-                                      child: const Text(
-                                        'Login',
-                                        style: TextStyle(
-                                          color: Color(0xFFF2F2F2),
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 20),
+                                _buildStudentGradeLevelField(),
+                                const SizedBox(height: 15),
+                                if (_isStudentShs || _isStudentCollege) ...[
+                                  _buildStudentProgramField(),
+                                  const SizedBox(height: 15),
+                                ],
                               ],
-                            ),
+                              _textField(
+                                key: const Key('first_name_field'),
+                                controller: _firstNameController,
+                                hint: 'First Name',
+                                validator: (value) =>
+                                    _validateName(value, 'first name'),
+                                textCapitalization: TextCapitalization.words,
+                                autofillHints: const [
+                                  AutofillHints.givenName,
+                                ],
+                              ),
+                              const SizedBox(height: 15),
+                              _textField(
+                                key: const Key('last_name_field'),
+                                controller: _lastNameController,
+                                hint: 'Last Name',
+                                validator: (value) =>
+                                    _validateName(value, 'last name'),
+                                textCapitalization: TextCapitalization.words,
+                                autofillHints: const [
+                                  AutofillHints.familyName,
+                                ],
+                              ),
+                              const SizedBox(height: 15),
+                              _textField(
+                                key: const Key('registration_email_field'),
+                                controller: _emailController,
+                                hint: _isStudent ? 'School Email' : 'Email',
+                                keyboardType: TextInputType.emailAddress,
+                                validator: _validateEmail,
+                                autofillHints: const [AutofillHints.email],
+                              ),
+                              AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 180),
+                                child: _buildAcademicFields(),
+                              ),
+                              const SizedBox(height: 15),
+                              _textField(
+                                key: const Key(
+                                  'registration_password_field',
+                                ),
+                                controller: _passwordController,
+                                hint: 'Password',
+                                obscureText: _isPasswordObscure,
+                                validator: _validatePassword,
+                                autofillHints: const [
+                                  AutofillHints.newPassword,
+                                ],
+                                suffixIcon: _visibilityButton(
+                                  obscure: _isPasswordObscure,
+                                  onPressed: () => setState(
+                                    () => _isPasswordObscure =
+                                        !_isPasswordObscure,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              const Text(
+                                'Use 8–1024 characters with uppercase and lowercase letters, '
+                                'a number, and a symbol (e.g. ! or @). No spaces.',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  height: 1.4,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              ValueListenableBuilder<String>(
+                                valueListenable: _passwordStrengthNotifier,
+                                builder: (context, strength, _) {
+                                  return Text(
+                                    'Password strength: $strength',
+                                    style: const TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 12,
+                                    ),
+                                  );
+                                },
+                              ),
+                              const SizedBox(height: 15),
+                              _textField(
+                                key: const Key('confirm_password_field'),
+                                controller: _confirmPasswordController,
+                                hint: 'Confirm Password',
+                                obscureText: _isConfirmPasswordObscure,
+                                validator: _validatePasswordConfirmation,
+                                autofillHints: const [
+                                  AutofillHints.newPassword,
+                                ],
+                                textInputAction: TextInputAction.done,
+                                suffixIcon: _visibilityButton(
+                                  obscure: _isConfirmPasswordObscure,
+                                  onPressed: () => setState(
+                                    () => _isConfirmPasswordObscure =
+                                        !_isConfirmPasswordObscure,
+                                  ),
+                                ),
+                                onFieldSubmitted: (_) => _handleRegister(),
+                              ),
+                              const SizedBox(height: 8),
+                              _buildTermsField(),
+                              const SizedBox(height: 25),
+                              SizedBox(
+                                height: 55,
+                                child: ElevatedButton(
+                                  key: const Key('create_account_button'),
+                                  onPressed:
+                                      _isSubmitting ? null : _handleRegister,
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: _darkNavy,
+                                    foregroundColor: Colors.white,
+                                    disabledBackgroundColor:
+                                        const Color(0xFF9EABB3),
+                                    elevation: 0,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                  ),
+                                  child: _isSubmitting
+                                      ? const SizedBox(
+                                          width: 22,
+                                          height: 22,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: Colors.white,
+                                          ),
+                                        )
+                                      : const Text(
+                                          'Register',
+                                          style: TextStyle(
+                                            fontSize: 24,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                ),
+                              ),
+                              const SizedBox(height: 20),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Flexible(
+                                    child: Text(
+                                      'Already have an account? ',
+                                      style: TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ),
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(context),
+                                    style: TextButton.styleFrom(
+                                      padding: EdgeInsets.zero,
+                                      minimumSize: Size.zero,
+                                      tapTargetSize:
+                                          MaterialTapTargetSize.shrinkWrap,
+                                    ),
+                                    child: const Text(
+                                      'Login',
+                                      style: TextStyle(
+                                        color: Color(0xFFF2F2F2),
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 20),
+                            ],
                           ),
                         ),
                       ),
@@ -573,11 +687,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   ),
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
-      );
-    }
+      ),
+    );
+  }
 
   Widget _buildStudentStatusField() {
     return DropdownButtonFormField<String>(
@@ -586,6 +701,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
       isExpanded: true,
       decoration: _inputDecoration(hint: 'Student Status'),
       items: const [
+        DropdownMenuItem(
+          key: Key('student_status_student'),
+          value: 'student',
+          child: Text('Student'),
+        ),
         DropdownMenuItem(
           key: Key('student_status_former_student'),
           value: 'former_student',
@@ -600,11 +720,60 @@ class _RegisterScreenState extends State<RegisterScreen> {
       onChanged: (value) {
         setState(() {
           _studentStatus = value;
+          _studentGradeLevel = null;
           _clearAcademicValues(clearEducationalLevel: true);
         });
       },
       validator: (value) =>
           value == null ? 'Select your student status to continue' : null,
+    );
+  }
+
+  Widget _buildStudentGradeLevelField() {
+    const levels = [
+      'Grade 7',
+      'Grade 8',
+      'Grade 9',
+      'Grade 10',
+      'Grade 11',
+      'Grade 12',
+      '1st Year',
+      '2nd Year',
+      '3rd Year',
+      '4th Year',
+      '5th Year',
+    ];
+    return DropdownButtonFormField<String>(
+      key: const Key('student_grade_level_field'),
+      initialValue: _studentGradeLevel,
+      isExpanded: true,
+      decoration: _inputDecoration(hint: 'Grade Level'),
+      items: levels
+          .map((level) => DropdownMenuItem(value: level, child: Text(level)))
+          .toList(),
+      onChanged: (value) => setState(() {
+        _studentGradeLevel = value;
+        _program = null;
+      }),
+      validator: (value) => value == null ? 'Select your grade level' : null,
+    );
+  }
+
+  Widget _buildStudentProgramField() {
+    final options = _isStudentShs ? _shsStrandOptions : _defaultProgramOptions;
+    return DropdownButtonFormField<String>(
+      key: ValueKey('student_program_${_isStudentShs ? 'shs' : 'college'}'),
+      initialValue: options.contains(_program) ? _program : null,
+      isExpanded: true,
+      decoration: _inputDecoration(hint: 'Program'),
+      items: options
+          .map((program) => DropdownMenuItem(
+                value: program,
+                child: Text(program, overflow: TextOverflow.ellipsis),
+              ))
+          .toList(),
+      onChanged: (value) => setState(() => _program = value),
+      validator: (value) => value == null ? 'Select your program' : null,
     );
   }
 
@@ -619,7 +788,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Widget _buildAcademicFields() {
-    if (_studentStatus == null) {
+    if (_studentStatus == null || _isStudent) {
       return const SizedBox.shrink(key: ValueKey('academic_fields_hidden'));
     }
 
@@ -632,6 +801,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
         const SizedBox(height: 15),
         _buildEducationalLevelField(),
         if (_educationalLevel != null) ...[
+          if (_isShs) ...[
+            const SizedBox(height: 15),
+            _buildStrandField(),
+          ],
           if (_requiresProgram) ...[
             const SizedBox(height: 15),
             _buildProgramField(),
@@ -785,16 +958,50 @@ class _RegisterScreenState extends State<RegisterScreen> {
       );
     }
 
+    final options = _programOptions;
+    final selectedProgram = options.contains(_program) ? _program : null;
+
     return DropdownButtonFormField<String>(
-      key: const Key('program_field'),
-      initialValue: _program,
+      key: ValueKey('program_field_${_studentStatus ?? 'none'}'),
+      initialValue: selectedProgram,
       isExpanded: true,
+      isDense: false,
+      itemHeight: null,
       decoration: _inputDecoration(hint: 'Program'),
-      items: _programOptions
+      selectedItemBuilder: (context) {
+        return options.map((program) {
+          return Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              program,
+              softWrap: true,
+              maxLines: 3,
+              style: const TextStyle(
+                color: _darkNavy,
+                fontSize: 14,
+                height: 1.25,
+              ),
+            ),
+          );
+        }).toList();
+      },
+      items: options
           .map(
             (program) => DropdownMenuItem(
               value: program,
-              child: Text(program, overflow: TextOverflow.ellipsis),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8.0),
+                child: Text(
+                  program,
+                  softWrap: true,
+                  maxLines: 4,
+                  style: const TextStyle(
+                    color: _darkNavy,
+                    fontSize: 14,
+                    height: 1.3,
+                  ),
+                ),
+              ),
             ),
           )
           .toList(),
@@ -803,11 +1010,65 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
+  Widget _buildStrandField() {
+    const options = _shsStrandOptions;
+    final selectedStrand = options.contains(_program) ? _program : null;
+
+    return DropdownButtonFormField<String>(
+      key: ValueKey('strand_field_${_studentStatus ?? 'none'}'),
+      initialValue: selectedStrand,
+      isExpanded: true,
+      isDense: false,
+      itemHeight: null,
+      decoration: _inputDecoration(hint: 'Strand'),
+      selectedItemBuilder: (context) {
+        return options.map((strand) {
+          return Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              strand,
+              softWrap: true,
+              maxLines: 3,
+              style: const TextStyle(
+                color: _darkNavy,
+                fontSize: 14,
+                height: 1.25,
+              ),
+            ),
+          );
+        }).toList();
+      },
+      items: options
+          .map(
+            (strand) => DropdownMenuItem(
+              value: strand,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8.0),
+                child: Text(
+                  strand,
+                  softWrap: true,
+                  maxLines: 4,
+                  style: const TextStyle(
+                    color: _darkNavy,
+                    fontSize: 14,
+                    height: 1.3,
+                  ),
+                ),
+              ),
+            ),
+          )
+          .toList(),
+      onChanged: (value) => setState(() => _program = value),
+      validator: (value) => value == null ? 'Select your strand' : null,
+    );
+  }
+
   Widget _buildTermsField() {
     return FormField<bool>(
       initialValue: _acceptedTerms,
-      validator: (value) =>
-          value == true ? null : 'Accept the Terms and Conditions to continue',
+      validator: (value) => value == true
+          ? null
+          : 'Confirm that all details provided are correct to continue',
       builder: (field) {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -827,7 +1088,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
                 const Expanded(
                   child: Text(
-                    'I agree to the Terms and Conditions',
+                    'I confirm that all details provided are correct.',
                     style: TextStyle(color: Colors.white70, fontSize: 12),
                   ),
                 ),
@@ -862,6 +1123,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     bool obscureText = false,
     Widget? suffixIcon,
     ValueChanged<String>? onFieldSubmitted,
+    ValueChanged<String>? onChanged,
   }) {
     return TextFormField(
       key: key,
@@ -873,6 +1135,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       autofillHints: autofillHints,
       obscureText: obscureText,
       onFieldSubmitted: onFieldSubmitted,
+      onChanged: onChanged,
       style: const TextStyle(color: _darkNavy, fontSize: 15),
       decoration: _inputDecoration(
         hint: hint,
@@ -948,38 +1211,81 @@ class _RegistrationOtpDialog extends StatefulWidget {
     required this.email,
     required this.developmentOtp,
     required this.onVerify,
+    this.onResend,
   });
 
   final String email;
   final String? developmentOtp;
   final Future<void> Function(String otp) onVerify;
+  final Future<void> Function()? onResend;
 
   @override
   State<_RegistrationOtpDialog> createState() => _RegistrationOtpDialogState();
 }
 
 class _RegistrationOtpDialogState extends State<_RegistrationOtpDialog> {
-  final _formKey = GlobalKey<FormState>();
-  final _otpController = TextEditingController();
+  static const _pinCount = 6;
+  static const _accentBlue = Color(0xFF2C5FF6);
+
+  final _hiddenController = TextEditingController();
+  final _hiddenFocus = FocusNode();
+  final List<String> _digits = List.filled(_pinCount, '');
 
   bool _isVerifying = false;
+  bool _isResending = false;
   String? _verificationError;
+
+  String get _otp => _digits.join();
+  bool get _isFilled => _digits.every((d) => d.isNotEmpty);
+
+  @override
+  void initState() {
+    super.initState();
+    _hiddenController.addListener(_onTextChanged);
+    // pre-fill dev OTP if available
+    if (widget.developmentOtp?.length == _pinCount) {
+      _hiddenController.text = widget.developmentOtp!;
+    }
+  }
+
+  void _onTextChanged() {
+    final raw = _hiddenController.text.replaceAll(RegExp(r'\D'), '');
+    final clamped = raw.length > _pinCount ? raw.substring(0, _pinCount) : raw;
+    if (_hiddenController.text != clamped) {
+      _hiddenController.value = _hiddenController.value.copyWith(
+        text: clamped,
+        selection: TextSelection.collapsed(offset: clamped.length),
+      );
+      return;
+    }
+    setState(() {
+      _verificationError = null;
+      for (int i = 0; i < _pinCount; i++) {
+        _digits[i] = i < clamped.length ? clamped[i] : '';
+      }
+    });
+  }
 
   @override
   void dispose() {
-    _otpController.dispose();
+    _hiddenController.removeListener(_onTextChanged);
+    _hiddenController.dispose();
+    _hiddenFocus.dispose();
     super.dispose();
   }
 
   Future<void> _verify() async {
-    if (_isVerifying || !(_formKey.currentState?.validate() ?? false)) return;
-
+    if (_isVerifying) return;
+    if (!_isFilled) {
+      setState(() => _verificationError = 'Enter all 6 digits');
+      return;
+    }
     setState(() {
       _isVerifying = true;
       _verificationError = null;
     });
     try {
-      await widget.onVerify(_otpController.text);
+      await widget.onVerify(_otp);
       if (mounted) Navigator.of(context).pop(true);
     } catch (error) {
       if (!mounted) return;
@@ -993,85 +1299,278 @@ class _RegistrationOtpDialogState extends State<_RegistrationOtpDialog> {
     }
   }
 
+  Future<void> _resend() async {
+    if (_isResending || _isVerifying || widget.onResend == null) return;
+    setState(() {
+      _isResending = true;
+      _verificationError = null;
+    });
+    try {
+      await widget.onResend!();
+      // clear digits for new code
+      _hiddenController.clear();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('A new code has been sent.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() =>
+            _verificationError = e.toString().replaceFirst('Exception: ', ''));
+      }
+    } finally {
+      if (mounted) setState(() => _isResending = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Verify your email'),
-      content: Form(
-        key: _formKey,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'Enter the six-digit code sent to ${widget.email}. The code expires in 10 minutes.',
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                key: const Key('registration_otp_field'),
-                controller: _otpController,
-                autofocus: true,
-                enabled: !_isVerifying,
-                keyboardType: TextInputType.number,
-                textInputAction: TextInputAction.done,
-                autofillHints: const [AutofillHints.oneTimeCode],
-                inputFormatters: [
-                  FilteringTextInputFormatter.digitsOnly,
-                  LengthLimitingTextInputFormatter(6),
-                ],
-                validator: (value) =>
-                    RegExp(r'^\d{6}$').hasMatch(value?.trim() ?? '')
-                        ? null
-                        : 'Enter the six-digit verification code',
-                onFieldSubmitted: (_) => _verify(),
-                decoration: const InputDecoration(
-                  labelText: 'Verification code',
-                  prefixIcon: Icon(Icons.password_rounded),
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              if (widget.developmentOtp?.isNotEmpty == true) ...[
-                const SizedBox(height: 10),
-                Text(
-                  'Development code: ${widget.developmentOtp}',
-                  key: const Key('registration_development_otp'),
-                  style: const TextStyle(fontSize: 12),
-                ),
-              ],
-              if (_verificationError != null) ...[
-                const SizedBox(height: 10),
-                Text(
-                  _verificationError!,
-                  key: const Key('registration_otp_error'),
-                  style: const TextStyle(
-                    color: Color(0xFFB3261E),
-                    fontSize: 12,
+    return Dialog.fullscreen(
+      child: Scaffold(
+        backgroundColor: Colors.white,
+        body: SafeArea(
+          child: GestureDetector(
+            // tapping anywhere refocuses the hidden input
+            onTap: () => _hiddenFocus.requestFocus(),
+            behavior: HitTestBehavior.translucent,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 28),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const SizedBox(height: 16),
+                  // Back / close
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: IconButton(
+                      icon: const Icon(Icons.arrow_back_rounded),
+                      onPressed: _isVerifying
+                          ? null
+                          : () => Navigator.of(context).pop(false),
+                    ),
                   ),
-                ),
-              ],
-            ],
+                  const SizedBox(height: 24),
+                  // Title
+                  RichText(
+                    textAlign: TextAlign.center,
+                    text: const TextSpan(
+                      style: TextStyle(
+                        fontSize: 26,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF1A1A2E),
+                      ),
+                      children: [
+                        TextSpan(text: 'Verify '),
+                        TextSpan(
+                          text: 'your email',
+                          style: TextStyle(fontStyle: FontStyle.italic),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  // Subtitle
+                  Text(
+                    "Enter code we've sent to your inbox\n${widget.email}",
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: Color(0xFF6B7280),
+                      height: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 36),
+                  // 6 PIN boxes with transparent text field overlay
+                  SizedBox(
+                    height: 56,
+                    child: Stack(
+                      children: [
+                        // Visual PIN boxes
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: List.generate(_pinCount, (i) {
+                            final isFocused = _hiddenFocus.hasFocus &&
+                                _digits[i].isEmpty &&
+                                (i == 0 || _digits[i - 1].isNotEmpty);
+                            return _PinBox(
+                              digit: _digits[i],
+                              isFocused: isFocused,
+                              hasError: _verificationError != null,
+                            );
+                          }),
+                        ),
+                        // Transparent text field on top to capture taps & keyboard
+                        Positioned.fill(
+                          child: TextField(
+                            key: const Key('registration_otp_field'),
+                            controller: _hiddenController,
+                            focusNode: _hiddenFocus,
+                            autofocus: true,
+                            enabled: !_isVerifying,
+                            keyboardType: TextInputType.number,
+                            textInputAction: TextInputAction.done,
+                            autofillHints: const [AutofillHints.oneTimeCode],
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly,
+                              LengthLimitingTextInputFormatter(_pinCount),
+                            ],
+                            onSubmitted: (_) => _verify(),
+                            style: const TextStyle(color: Colors.transparent),
+                            cursorColor: Colors.transparent,
+                            decoration: const InputDecoration(
+                              border: InputBorder.none,
+                              counterText: '',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  // Error message
+                  if (_verificationError != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Text(
+                        _verificationError!,
+                        key: const Key('registration_otp_error'),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Color(0xFFB3261E),
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  // Dev OTP hint
+                  if (widget.developmentOtp?.isNotEmpty == true) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      'Dev code: ${widget.developmentOtp}',
+                      key: const Key('registration_development_otp'),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                          fontSize: 12, color: Color(0xFF6B7280)),
+                    ),
+                  ],
+                  const SizedBox(height: 28),
+                  // Resend row
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Text(
+                        "Didn't get the code? ",
+                        style:
+                            TextStyle(color: Color(0xFF6B7280), fontSize: 14),
+                      ),
+                      GestureDetector(
+                        onTap: (_isResending || widget.onResend == null)
+                            ? null
+                            : _resend,
+                        child: Text(
+                          _isResending ? 'Sending…' : 'Resend it.',
+                          style: const TextStyle(
+                            color: _accentBlue,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const Spacer(),
+                  // Continue button
+                  SizedBox(
+                    height: 54,
+                    child: ElevatedButton(
+                      key: const Key('verify_registration_otp_button'),
+                      onPressed: (_isVerifying || !_isFilled) ? null : _verify,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _accentBlue,
+                        disabledBackgroundColor: const Color(0xFFB0C0F5),
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      child: _isVerifying
+                          ? const SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.5,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Text(
+                              'Continue',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+                ],
+              ),
+            ),
           ),
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed:
-              _isVerifying ? null : () => Navigator.of(context).pop(false),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          key: const Key('verify_registration_otp_button'),
-          onPressed: _isVerifying ? null : _verify,
-          child: _isVerifying
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
+    );
+  }
+}
+
+/// A single PIN digit box.
+class _PinBox extends StatelessWidget {
+  const _PinBox({
+    required this.digit,
+    required this.isFocused,
+    required this.hasError,
+  });
+
+  final String digit;
+  final bool isFocused;
+  final bool hasError;
+
+  @override
+  Widget build(BuildContext context) {
+    final borderColor = hasError
+        ? const Color(0xFFB3261E)
+        : isFocused
+            ? const Color(0xFF2C5FF6)
+            : const Color(0xFFE5E7EB);
+    final bgColor = digit.isNotEmpty ? const Color(0xFFF0F4FF) : Colors.white;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 150),
+      width: 46,
+      height: 56,
+      decoration: BoxDecoration(
+        color: bgColor,
+        border: Border.all(color: borderColor, width: isFocused ? 2 : 1.5),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: isFocused
+            ? [
+                BoxShadow(
+                  color: const Color(0xFF2C5FF6).withAlpha(40),
+                  blurRadius: 6,
+                  offset: const Offset(0, 2),
                 )
-              : const Text('Verify'),
+              ]
+            : null,
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        digit,
+        style: const TextStyle(
+          fontSize: 22,
+          fontWeight: FontWeight.bold,
+          color: Color(0xFF1A1A2E),
         ),
-      ],
+      ),
     );
   }
 }

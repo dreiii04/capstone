@@ -36,6 +36,9 @@ export function errorHandler(err, _req, res, _next) {
     });
   }
 
+  if (err?.code === 11000) return res.status(409).json({
+    success: false, message: 'Registration details are already in use. Sign in or recover your account.',
+  });
   const errorId = randomBytes(8).toString('hex');
   if (config.isProduction) {
     console.error(`Request failed (${errorId}).`);

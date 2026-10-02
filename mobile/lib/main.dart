@@ -15,9 +15,9 @@ import 'screens/forgot_password_screen.dart';
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Retain decoded textures in memory to eliminate CPU re-decompression on every scroll/transition.
-  PaintingBinding.instance.imageCache.maximumSize = 1000;
-  PaintingBinding.instance.imageCache.maximumSizeBytes = 100 * 1024 * 1024;
+  // Keep decoded texture cache within safe limits to prevent low memory killer SIGKILL.
+  PaintingBinding.instance.imageCache.maximumSize = 100;
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 20 * 1024 * 1024;
 
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
@@ -50,7 +50,7 @@ class Verifitor extends StatelessWidget {
       designSize: const Size(412, 715),
       minTextAdapt: false,
       splitScreenMode: false,
-      ensureScreenSize: true,
+      ensureScreenSize: false,
       builder: (_, child) => MaterialApp(
         debugShowCheckedModeBanner: false,
         title: 'Verifitor App',

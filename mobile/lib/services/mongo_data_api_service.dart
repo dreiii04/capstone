@@ -41,6 +41,8 @@ class MongoDataApiService {
   String? _refreshToken;
   String? _currentEmail;
   String? _currentUserId;
+  String? _currentUserRole;
+  ProfileData? _cachedProfile;
   DateTime? _accessTokenExpiresAt;
   final TokenStorage _storage = TokenStorage();
   Future<void>? _initialization;
@@ -51,6 +53,11 @@ class MongoDataApiService {
   String? get accessToken => _accessToken;
   String? get currentUserId => _currentUserId;
   DateTime? get accessTokenExpiresAt => _accessTokenExpiresAt;
+  ProfileData? get cachedProfile => _cachedProfile;
+  String? get currentUserRole => _cachedProfile?.role ?? _currentUserRole;
+  bool get isCurrentAlumni =>
+      _cachedProfile?.isAlumni ??
+      (_currentUserRole?.trim().toLowerCase() == 'alumni');
 
   Map<String, String> authHeaders() {
     if (_accessToken == null) return const {};
@@ -278,6 +285,8 @@ class MongoDataApiService {
     _refreshToken = null;
     _currentEmail = null;
     _currentUserId = null;
+    _currentUserRole = null;
+    _cachedProfile = null;
     _accessTokenExpiresAt = null;
   }
 
@@ -299,6 +308,7 @@ class MongoDataApiService {
 
     String? currentEmail;
     String? currentUserId;
+    String? currentRole;
     final user = data['user'];
     if (user is Map) {
       final email = user['email'];
@@ -308,6 +318,10 @@ class MongoDataApiService {
       final id = user['id'] ?? user['_id'];
       if (id != null && id.toString().trim().isNotEmpty) {
         currentUserId = id.toString().trim();
+      }
+      final role = user['role'];
+      if (role is String && role.trim().isNotEmpty) {
+        currentRole = role.trim();
       }
     }
 
@@ -351,6 +365,9 @@ class MongoDataApiService {
     _refreshToken = refreshToken;
     _currentEmail = currentEmail;
     _currentUserId = currentUserId;
+    if (currentRole != null) {
+      _currentUserRole = currentRole;
+    }
     _accessTokenExpiresAt = expiresAt;
   }
 
@@ -400,6 +417,9 @@ class MongoDataApiService {
     required String lastName,
     required String email,
     required String password,
+    String? studentId,
+    String? schoolEmail,
+    String? yearLevel,
     String? program,
     String? yearGraduated,
     String? lastYearAttended,
@@ -414,6 +434,11 @@ class MongoDataApiService {
       'email': email.trim(),
       'password': password.trim(),
     };
+    if (studentStatus.trim() == 'student') {
+      body['studentId'] = studentId?.trim() ?? '';
+      body['schoolEmail'] = schoolEmail?.trim() ?? email.trim();
+      body['yearLevel'] = yearLevel?.trim() ?? '';
+    }
     if (program?.trim().isNotEmpty == true) {
       body['program'] = program!.trim();
     }
@@ -496,6 +521,8 @@ class MongoDataApiService {
       }
       final profile = ProfileData.fromJson(normalized);
       _acceptAuthenticatedProfile(profile);
+      _cachedProfile = profile;
+      _currentUserRole = profile.role;
       return profile;
     }
 
@@ -524,6 +551,8 @@ class MongoDataApiService {
       }
       final updated = ProfileData.fromJson(normalized);
       _acceptAuthenticatedProfile(updated);
+      _cachedProfile = updated;
+      _currentUserRole = updated.role;
       return updated;
     }
 
@@ -665,12 +694,15 @@ class MongoDataApiService {
         'A request ID is required to upload a receipt.',
       );
     }
+    if (bytes.length > 4 * 1024 * 1024) {
+      throw Exception('Receipt must be 4 MB or smaller.');
+    }
     final receiptContentType = receiptImageContentType(bytes);
     if (receiptContentType == null) {
       throw ArgumentError.value(
         fileName,
         'fileName',
-        'Please choose a valid JPG or PNG receipt image.',
+        'Please choose a valid JPG, PNG, WEBP, or HEIC receipt image.',
       );
     }
 
@@ -755,15 +787,47 @@ class MongoDataApiService {
       if (rawProfile == null) throw Exception('Invalid upload response.');
       final profile = ProfileData.fromJson(normalizeProfileRecord(rawProfile));
       _acceptAuthenticatedProfile(profile);
+      _cachedProfile = profile;
+      _currentUserRole = profile.role;
       return profile;
     }
 
     throw Exception(_messageFor(decoded.data, 'Failed to upload photo.'));
   }
 
+  Future<Map<String, dynamic>> fetchRequestPolicy() async {
+    var response = await _getJson('/request-policy');
+    if (response.statusCode == 404) {
+      response = await _getJson('/requests/policy');
+    }
+    if (response.statusCode == 404) {
+      throw Exception(
+          'This server has not been updated for Express requests. Standard requests are still available.');
+    }
+    if (response.statusCode != 200) {
+      throw Exception('Unable to load request policy.');
+    }
+    return response.data;
+  }
+
+  Future<bool> checkEmailAvailability(String email) async {
+    final response = await _postJson(
+        '/auth/email-availability', {'email': email.trim().toLowerCase()});
+    if (response.statusCode == 404) {
+      throw Exception(
+          'This server has not been updated for email availability checks. You can still try verified registration.');
+    }
+    if (response.statusCode != 200 || response.data['available'] is! bool) {
+      throw Exception(
+          _messageFor(response.data, 'Unable to check email. Try again.'));
+    }
+    return response.data['available'] as bool;
+  }
+
   Future<Map<String, dynamic>> createDocumentRequest({
     required String docName,
     required String purpose,
+    String processingOption = 'standard',
   }) async {
     if (_accessToken == null) {
       throw Exception('Not authenticated.');
@@ -775,6 +839,7 @@ class MongoDataApiService {
         'docName': docName.trim(),
         'documentType': docName.trim(),
         'purpose': purpose.trim(),
+        'processingOption': processingOption,
       },
       withAuth: true,
     );
@@ -1097,6 +1162,28 @@ class MongoDataApiService {
 }
 
 MediaType? receiptImageContentType(Uint8List bytes) {
+  if (bytes.length >= 12 &&
+      bytes[0] == 0x52 &&
+      bytes[1] == 0x49 &&
+      bytes[2] == 0x46 &&
+      bytes[3] == 0x46 &&
+      bytes[8] == 0x57 &&
+      bytes[9] == 0x45 &&
+      bytes[10] == 0x42 &&
+      bytes[11] == 0x50) {
+    return MediaType('image', 'webp');
+  }
+  if (bytes.length >= 12 &&
+      bytes[4] == 0x66 &&
+      bytes[5] == 0x74 &&
+      bytes[6] == 0x79 &&
+      bytes[7] == 0x70) {
+    final brand = String.fromCharCodes(bytes.sublist(8, 12)).toLowerCase();
+    if (const {'heic', 'heix', 'hevc', 'hevx', 'mif1', 'msf1'}
+        .contains(brand)) {
+      return MediaType('image', 'heic');
+    }
+  }
   if (bytes.length >= 8 &&
       bytes[0] == 0x89 &&
       bytes[1] == 0x50 &&

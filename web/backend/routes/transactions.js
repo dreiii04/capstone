@@ -2,14 +2,17 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const crypto = require('crypto');
+const mongoose = require('mongoose');
 const Transaction = require('../models/Transaction');
 const Request = require('../models/Request');
 const ActivityLog = require('../models/ActivityLog');
+const Notification = require('../models/Notification');
 const { protect, registrarOrSuperAdmin } = require('../middleware/authMiddleware');
 const { isEndUser } = require('../services/sessionService');
-const { uploadStream } = require('../utils/cloudinary');
+const { uploadStream, cloudinary } = require('../utils/cloudinary');
 const { isSupportedImage } = require('../utils/imageValidation');
 const { ownerQuery } = require('../utils/ownership');
+const { createProcessingEstimate } = require('../services/processingEstimate');
 const {
   resolveRequestPricing,
   resolveTransactionAmount,
@@ -72,7 +75,13 @@ router.get('/', protect, async (req, res) => {
       ? ownerQuery(req.user, { emailField: 'payerEmail' })
       : {};
     const limit = Math.min(Math.max(Number.parseInt(req.query.limit || '100', 10) || 100, 1), 200);
-    const transactions = await Transaction.find(query).sort({ date: -1 }).limit(limit);
+    const transactions = await Transaction.aggregate([
+      { $match: query },
+      { $addFields: { reviewAt: { $ifNull: ['$lastSubmittedAt', '$date'] } } },
+      { $sort: { reviewAt: -1, date: -1 } },
+      { $limit: limit },
+      { $project: { reviewAt: 0 } },
+    ]);
     res.json(await enrichTransactionAmounts(transactions));
   } catch (error) {
     res.status(500).json({ message: 'Error fetching transactions' });
@@ -145,6 +154,7 @@ router.get('/:id', protect, async (req, res) => {
 
 // Upload receipt and create a new transaction
 router.post('/upload-receipt', protect, upload.single('receiptImage'), async (req, res) => {
+  let uploadResult;
   try {
     const { requestId, documentType, paymentMode } = req.body;
     if (!req.file) {
@@ -187,27 +197,59 @@ router.post('/upload-receipt', protect, upload.single('receiptImage'), async (re
       });
     }
 
-    const uploadResult = await uploadStream(req.file.buffer, 'receipts');
+    uploadResult = await uploadStream(req.file.buffer, 'receipts');
     const receiptImage = uploadResult.secure_url;
-
-    const newTx = await Transaction.create({
-      userId: String(req.user.id || ''),
-      transactionId,
-      requestId: requestId || 'N/A',
-      name: linkedRequest.name || req.user.name || 'User',
-      documentType: linkedRequest.documentType || documentType || 'General',
-      paymentMode: paymentMode || 'GCash',
-      amount: totalAmount.toFixed(2),
-      receiptImage,
-      payerName: linkedRequest.name || req.user.name || 'User',
-      payerEmail: String(req.user.email || '').trim().toLowerCase(),
-      payerType: String(req.user.role || '').toLowerCase() === 'alumni' ? 'Alumni' : 'Student',
-      status: 'Pending Verification'
-    });
+    const now = new Date();
+    const session = await mongoose.startSession();
+    let newTx;
+    try {
+      await session.withTransaction(async () => {
+        [newTx] = await Transaction.create([{
+          userId: String(req.user.id || ''),
+          transactionId,
+          requestId,
+          name: linkedRequest.name || req.user.name || 'User',
+          documentType: linkedRequest.documentType || documentType || 'General',
+          paymentMode: paymentMode || 'GCash',
+          amount: totalAmount.toFixed(2),
+          receiptImage,
+          imageUrl: receiptImage,
+          publicId: uploadResult.public_id,
+          receiptImagePublicId: uploadResult.public_id,
+          lastSubmittedAt: now,
+          payerName: linkedRequest.name || req.user.name || 'User',
+          payerEmail: String(req.user.email || '').trim().toLowerCase(),
+          payerType: String(req.user.role || '').toLowerCase() === 'alumni' ? 'Alumni' : 'Student',
+          status: 'Pending Verification',
+        }], { session });
+        const updatedRequest = await Request.findOneAndUpdate(
+          { _id: linkedRequest._id, status: linkedRequest.status,
+            $or: [{ paymentReceiptId: { $exists: false } },
+              { paymentReceiptId: null }, { paymentReceiptId: '' }] },
+          { $set: { status: 'Pending', mobileStatus: 'pending',
+            paymentReceiptId: String(newTx._id) },
+            $push: { statusHistory: { status: 'Pending', at: now,
+              remarks: 'Receipt submitted for review.' } } },
+          { new: true, session },
+        );
+        if (!updatedRequest) {
+          throw Object.assign(new Error('A receipt already exists for this request.'), { httpStatus: 409 });
+        }
+      });
+    } finally {
+      await session.endSession();
+    }
 
     res.status(201).json(newTx);
   } catch (error) {
+    if (uploadResult?.public_id) {
+      await cloudinary.uploader.destroy(uploadResult.public_id, { type: 'authenticated' }).catch(() => {});
+    }
     console.error('Receipt upload error:', error);
+    if (error?.httpStatus || error?.code === 11000 || error?.code === 112) {
+      return res.status(409).json({ success: false,
+        message: 'A receipt already exists for this request.' });
+    }
     if (error?.code === 'MEDIA_STORAGE_UNAVAILABLE') {
       return res.status(503).json({
         success: false,
@@ -262,119 +304,104 @@ router.post('/', protect, registrarOrSuperAdmin, async (req, res) => {
     }
 });
 
-// Admin: Verify / Approve / Request Update on a receipt
+// Admin: decide the current receipt without closing its document request.
 router.put('/:id/verify', protect, registrarOrSuperAdmin, async (req, res) => {
+  const { status } = req.body;
+  const adminRemarks = typeof req.body.adminRemarks === 'string'
+    ? req.body.adminRemarks.trim() : '';
+  if (!['Completed', 'Needs Update', 'Rejected'].includes(status)) {
+    return res.status(400).json({ message: 'Invalid verification decision.' });
+  }
+  if (adminRemarks.length > 500 || (status !== 'Completed' && !adminRemarks)) {
+    return res.status(400).json({ message: 'A rejection reason of up to 500 characters is required.' });
+  }
+
+  const session = await mongoose.startSession();
   try {
-    const { status, adminRemarks } = req.body;
-    const allowedStatuses = ['Completed', 'Needs Update', 'Rejected'];
-    if (!allowedStatuses.includes(status)) {
-      return res.status(400).json({ message: 'Invalid verification decision.' });
-    }
+    const now = new Date();
+    const accepted = status === 'Completed';
+    // Older clients still send Rejected for an invalid receipt. Store the
+    // receipt decision separately from document-request rejection.
+    const receiptStatus = accepted ? 'Completed' : 'Needs Update';
+    let transaction;
+    await session.withTransaction(async () => {
+      transaction = await Transaction.findOneAndUpdate(
+        { transactionId: req.params.id, status: 'Pending Verification' },
+        { $set: {
+          status: receiptStatus,
+          adminRemarks: accepted ? '' : adminRemarks,
+          rejectionReason: accepted ? '' : adminRemarks,
+          verifiedBy: req.user.email || req.user.name || 'Admin',
+          verifiedAt: now,
+        } },
+        { new: true, session },
+      );
+      if (!transaction) {
+        const exists = await Transaction.exists({ transactionId: req.params.id }).session(session);
+        throw Object.assign(new Error(exists ? 'This receipt has already been reviewed.' : 'Transaction not found.'),
+          { httpStatus: exists ? 409 : 404 });
+      }
 
-    const transaction = await Transaction.findOneAndUpdate(
-      {
-        transactionId: req.params.id,
-        status: 'Pending Verification',
-      },
-      {
-        status,
-        adminRemarks: adminRemarks || '',
-        verifiedBy: req.user.email || req.user.name || 'Admin',
-        verifiedAt: new Date()
-      },
-      { new: true }
-    );
-
-    if (!transaction) {
-      const exists = await Transaction.exists({ transactionId: req.params.id });
-      return res.status(exists ? 409 : 404).json({
-        message: exists
-          ? 'This payment has already been decided.'
-          : 'Transaction not found',
-      });
-    }
-
-    const Notification = require('../models/Notification');
-
-    // Sync to Request Collection
-    if (status === 'Completed') {
+      const requestStatus = accepted ? 'In Process' : 'Pending';
+      const linkedRequest = accepted
+        ? await Request.findOne({ requestId: transaction.requestId }).session(session)
+        : null;
+      const estimate = accepted && linkedRequest && !linkedRequest.processingStartedAt
+        ? linkedRequest.estimatedProcessingEnd
+          ? { processingStartedAt: now }
+          : createProcessingEstimate(linkedRequest.documentType, now)
+        : {};
       const updatedReq = await Request.findOneAndUpdate(
-        { requestId: transaction.requestId, status: 'Pending' },
-        { status: 'In Process' },
-        { new: true }
+        { requestId: transaction.requestId, status: { $in: ['Pending for Payment', 'Pending'] } },
+        { $set: {
+          status: requestStatus,
+          mobileStatus: accepted ? 'in_process' : 'pending',
+          correctionType: accepted ? '' : 'receipt',
+          remarks: accepted ? '' : adminRemarks,
+          rejectionReason: '',
+          ...estimate,
+        }, $push: { statusHistory: {
+          status: requestStatus, at: now,
+          remarks: accepted ? 'Receipt approved.' : adminRemarks,
+        } } },
+        { new: true, session },
       );
       if (!updatedReq) {
-        await Transaction.updateOne(
-          { _id: transaction._id, status: 'Completed' },
-          {
-            $set: {
-              status: 'Pending Verification',
-              verifiedBy: '',
-              verifiedAt: null,
-            },
-          },
-        );
-        return res.status(409).json({
-          message: 'The linked request is no longer awaiting payment.',
-        });
+        throw Object.assign(new Error('The linked request is no longer awaiting receipt verification.'),
+          { httpStatus: 409 });
       }
-      await Notification.create({
+      await Notification.create([{
         userId: updatedReq.userId || '',
-        message: `Your request #${updatedReq.requestId} for ${updatedReq.documentType} is now In Process!`,
+        message: accepted
+          ? `Your payment for request #${updatedReq.requestId} (${updatedReq.documentType}) has been confirmed. Your request is now In Process.`
+          : `Receipt needs update for request #${updatedReq.requestId}. Reason: ${adminRemarks}. Please resubmit a clearer receipt.`,
         isRead: false,
-        email: updatedReq.email || ''
-      });
-    }
+        email: updatedReq.email || '',
+      }], { session });
+    });
 
-    // Bug 2 fix: Cascade payment rejection to linked Request
-    if (status === 'Rejected') {
-      const updatedReq = await Request.findOneAndUpdate(
-        { requestId: transaction.requestId, status: 'Pending' },
-        { status: 'Rejected', rejectionReason: 'Payment Issue' },
-        { new: true }
-      );
-      if (!updatedReq) {
-        await Transaction.updateOne(
-          { _id: transaction._id, status: 'Rejected' },
-          {
-            $set: {
-              status: 'Pending Verification',
-              verifiedBy: '',
-              verifiedAt: null,
-            },
-          },
-        );
-        return res.status(409).json({
-          message: 'The linked request is no longer awaiting payment.',
-        });
-      }
-      await Notification.create({
-        userId: updatedReq.userId || '',
-        message: `Your request #${updatedReq.requestId} for ${updatedReq.documentType} was rejected. Reason: Payment Issue`,
-        isRead: false,
-        email: updatedReq.email || ''
-      });
-    }
-
-    // Log the verification activity
     await ActivityLog.create({
       userEmail: req.user.email,
       userName: req.user.name || 'Admin',
-      action: `Payment ${status}`,
+      action: `Payment ${receiptStatus}`,
       type: transaction.documentType || '------',
       status: 'Successful',
-      details: `${status} receipt for Transaction: ${transaction.transactionId}. Remarks: ${adminRemarks || 'None'}`
-    });
+      details: `${receiptStatus} receipt for Transaction: ${transaction.transactionId}. Remarks: ${adminRemarks || 'None'}`
+    }).catch((error) => console.error('Could not log receipt decision:', error));
 
     res.json(transaction);
   } catch (error) {
     console.error('Verify error:', error);
-    res.status(500).json({ message: 'Error verifying transaction' });
+    res.status(error.httpStatus || 500).json({ message: error.httpStatus
+      ? error.message : 'Error verifying transaction' });
+  } finally {
+    await session.endSession();
   }
 });
 
 // Admin: Re-upload receipt
 router.put('/:id/reupload', protect, upload.single('receiptImage'), async (req, res) => {
+  let uploadResult;
   try {
     if (!req.file || !isSupportedImage(req.file.buffer)) {
       return res.status(400).json({ success: false, message: 'A valid PNG or JPEG receipt is required.' });
@@ -386,24 +413,73 @@ router.put('/:id/reupload', protect, upload.single('receiptImage'), async (req, 
         : {}),
     });
     if (!transaction) return res.status(404).json({ message: 'Transaction not found' });
-    if (transaction.status !== 'Needs Update') {
+    if (!['Needs Update', 'Rejected'].includes(transaction.status)) {
       return res.status(409).json({
         success: false,
-        message: 'A receipt can only be replaced after staff request an update.',
+        message: 'A receipt can only be replaced after it has been rejected.',
       });
     }
+    const linkedRequest = await Request.findOne({ requestId: transaction.requestId,
+      ...(isEndUser(req.user) ? ownerQuery(req.user) : {}) });
+    if (!linkedRequest || !['Needs Update', 'Pending'].includes(linkedRequest.status) ||
+        (linkedRequest.correctionType && linkedRequest.correctionType !== 'receipt')) {
+      return res.status(409).json({ success: false, message: 'This request is not awaiting a replacement receipt.' });
+    }
 
-    const uploadResult = await uploadStream(req.file.buffer, 'receipts');
-    transaction.receiptImage = uploadResult.secure_url;
-    transaction.status = 'Pending Verification';
-    transaction.adminRemarks = '';
-    await transaction.save();
-    res.json(transaction);
+    uploadResult = await uploadStream(req.file.buffer, 'receipts');
+    const now = new Date();
+    const session = await mongoose.startSession();
+    let updated;
+    try {
+      await session.withTransaction(async () => {
+        updated = await Transaction.findOneAndUpdate(
+          { _id: transaction._id, status: transaction.status },
+          { $set: {
+            receiptImage: uploadResult.secure_url,
+            imageUrl: uploadResult.secure_url,
+            publicId: uploadResult.public_id,
+            receiptImagePublicId: uploadResult.public_id,
+            status: 'Pending Verification',
+            adminRemarks: '', rejectionReason: '', verifiedAt: null, verifiedBy: '',
+            lastSubmittedAt: now,
+          }, $push: { receiptHistory: {
+            receiptImage: transaction.receiptImage || transaction.imageUrl,
+            publicId: transaction.publicId || transaction.receiptImagePublicId || '',
+            submittedAt: transaction.lastSubmittedAt || transaction.updatedAt || transaction.date,
+            status: transaction.status,
+            remarks: transaction.rejectionReason || transaction.adminRemarks || '',
+            replacedAt: now,
+          } } },
+          { new: true, session },
+        );
+        if (!updated) throw Object.assign(new Error('Receipt was already resubmitted.'), { httpStatus: 409 });
+        const request = await Request.findOneAndUpdate(
+          { _id: linkedRequest._id, status: linkedRequest.status,
+            ...(linkedRequest.correctionType
+              ? { correctionType: linkedRequest.correctionType }
+              : { $or: [{ correctionType: '' }, { correctionType: { $exists: false } }] }) },
+          { $set: { status: 'Pending', mobileStatus: 'pending', correctionType: '', remarks: '' },
+            $push: { statusHistory: { status: 'Pending', at: now,
+              remarks: 'Replacement receipt submitted for review.' } } },
+          { new: true, session },
+        );
+        if (!request) throw Object.assign(new Error('Request was already updated.'), { httpStatus: 409 });
+        await Notification.create([{ userId: request.userId || '',
+          message: `Replacement receipt submitted for request #${request.requestId}`,
+          isRead: false, email: request.email || '' }], { session });
+      });
+    } finally {
+      await session.endSession();
+    }
+    res.json(updated);
   } catch (error) {
+    if (uploadResult?.public_id) {
+      await cloudinary.uploader.destroy(uploadResult.public_id, { type: 'authenticated' }).catch(() => {});
+    }
     const unavailable = error?.code === 'MEDIA_STORAGE_UNAVAILABLE';
-    res.status(unavailable ? 503 : 500).json({
+    res.status(error?.httpStatus || (unavailable ? 503 : 500)).json({
       success: false,
-      message: unavailable
+      message: error?.httpStatus ? error.message : unavailable
         ? 'Receipt storage is temporarily unavailable. Please try again later.'
         : 'Error re-uploading receipt',
     });
@@ -520,12 +596,25 @@ router.put('/refunds/:id/process', protect, registrarOrSuperAdmin, async (req, r
       });
     }
 
-    // If approved, mark the original transaction as Refunded
+    // Keep the approved receipt decision separate from the refund decision.
     if (status === 'Approved') {
       await Transaction.findOneAndUpdate(
         { transactionId: refund.transactionId },
-        { status: 'Refunded', adminRemarks: `Refund approved (${refund.refundId || refund._id}). ${adminRemarks || ''}`.trim() }
+        { refundStatus: 'Approved' }
       );
+      if (refund.requestId || refund.transactionId) {
+        await Request.findOneAndUpdate(
+          {
+            $or: [
+              ...(refund.requestId ? [{ requestId: refund.requestId }] : []),
+              ...(refund.transactionId ? [{ transactionId: refund.transactionId }] : []),
+            ],
+          },
+          {
+            refundStatus: 'Approved',
+          }
+        );
+      }
     } else if (status === 'Pending') {
       await Transaction.findOneAndUpdate(
         { transactionId: refund.transactionId },

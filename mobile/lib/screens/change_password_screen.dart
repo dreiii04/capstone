@@ -55,7 +55,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     if (mounted) setState(() {});
   }
 
-  bool _validLength(String value) => value.length >= 8 && value.length <= 72;
+  bool _validLength(String value) => value.length >= 8 && value.length <= 1024;
   bool _hasLetterCases(String value) =>
       RegExp(r'[A-Z]').hasMatch(value) && RegExp(r'[a-z]').hasMatch(value);
   bool _hasNumber(String value) => RegExp(r'[0-9]').hasMatch(value);
@@ -73,7 +73,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
 
   String? _validateCurrentPassword(String? value) {
     if (value == null || value.isEmpty) return 'Enter your current password';
-    if (value.length > 72) return 'Current password is too long';
+    if (value.length > 1024) return 'Current password is too long';
     return null;
   }
 
@@ -239,7 +239,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
             ),
           ),
           const SizedBox(height: 12),
-          _requirement('8-72 characters', _validLength(password)),
+          _requirement('8-1024 characters', _validLength(password)),
           _requirement(
             'Uppercase and lowercase letters',
             _hasLetterCases(password),

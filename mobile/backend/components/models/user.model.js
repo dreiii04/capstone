@@ -54,6 +54,7 @@ export function parseRegistrationRole(role) {
     .toLowerCase()
     .replace(/[\s-]+/g, '_');
   const accepted = new Set([
+    'student',
     'former_student',
     'stopped_student',
     'student_stopped',

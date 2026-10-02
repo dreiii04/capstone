@@ -13,6 +13,16 @@ class PendingRequest {
   final String status;
   final double documentPrice;
   final double totalAmount;
+  final String processingOption;
+  final String remarks;
+  final String correctionType;
+  final String receiptStatus;
+  final String receiptRejectionReason;
+  final DateTime? processingStartedAt;
+  final DateTime? estimatedProcessingStart;
+  final DateTime? estimatedCompletionDate;
+  final int? processingDays;
+  final List<Map<String, dynamic>> statusHistory;
 
   PendingRequest({
     this.requestId,
@@ -20,6 +30,16 @@ class PendingRequest {
     required this.purpose,
     required this.dateCreated,
     required this.status,
+    this.processingOption = 'standard',
+    this.remarks = '',
+    this.correctionType = '',
+    this.receiptStatus = '',
+    this.receiptRejectionReason = '',
+    this.processingStartedAt,
+    this.estimatedProcessingStart,
+    this.estimatedCompletionDate,
+    this.processingDays,
+    this.statusHistory = const [],
     this.documentPrice = 0,
     double? totalAmount,
   }) : totalAmount = totalAmount ?? documentPrice;
@@ -450,6 +470,8 @@ class _PendingScreenState extends State<PendingScreen> {
     required VoidCallback onTap,
   }) {
     final statusColor = _getStatusColor(item.status);
+    final receiptNeedsResubmission = item.request?.correctionType == 'receipt' &&
+        const ['Rejected', 'Needs Update'].contains(item.request?.receiptStatus);
     final information = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -475,6 +497,17 @@ class _PendingScreenState extends State<PendingScreen> {
             fontSize: isTablet ? 15 : 12,
           ),
         ),
+        if (receiptNeedsResubmission) ...[
+          SizedBox(height: isTablet ? 10 : 8),
+          Text(
+            'Receipt needs update · Tap to resubmit',
+            style: TextStyle(
+              color: const Color(0xFFB45309),
+              fontSize: isTablet ? 14 : 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
       ],
     );
 
@@ -539,23 +572,23 @@ class _PendingScreenState extends State<PendingScreen> {
       case 'REFUND UNDER REVIEW':
         return const Color(0xFF765B1B);
       case 'REFUND APPROVED':
+        return const Color(0xFF2E7D32);
       case 'REFUND PROCESSING':
         return const Color(0xFF356A86);
       case 'PENDING FOR PAYMENT':
-        return const Color(0xFFC67500);
+        return const Color(0xFFD97706);
+      case 'NEEDS UPDATE':
+        return const Color(0xFFB45309);
       case 'PENDING':
       case 'PENDING TO COMPLETE':
-        return Colors.blueGrey;
-        return const Color(0xFF356A86);
+        return const Color(0xFFD4A017);
       case 'READY TO CLAIM':
       case 'RELEASED':
-        return Colors.orange;
-        return const Color(0xFF2E7D32);
       case 'CLAIMED':
         return const Color(0xFF2E7D32);
       case 'PROCESSING':
       case 'IN PROCESS':
-        return const Color(0xFF218739);
+        return const Color(0xFFEA580C);
       case 'APPROVED':
         return const Color(0xFF246BCE);
       default:

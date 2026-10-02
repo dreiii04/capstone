@@ -1,6 +1,7 @@
 import 'package:capstone_project/models/profile_data.dart';
 import 'package:capstone_project/screens/change_password_screen.dart';
 import 'package:capstone_project/screens/edit_profile_screen.dart';
+import 'package:capstone_project/screens/splash_screen.dart';
 import 'package:capstone_project/services/mongo_data_api_service.dart';
 import 'package:capstone_project/widgets/confirmation_dialog.dart';
 import 'package:capstone_project/widgets/profile_avatar.dart';
@@ -367,10 +368,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   isDestructive: true,
                 );
                 if (!confirmed || !context.mounted) return;
-                await MongoDataApiService.instance.logout();
-                if (!context.mounted) return;
-                Navigator.of(context)
-                    .pushNamedAndRemoveUntil('/login', (route) => false);
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        const SplashScreen(mode: SplashMode.logout),
+                  ),
+                  (route) => false,
+                );
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: darkNavy,

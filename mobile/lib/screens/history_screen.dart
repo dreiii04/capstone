@@ -4,6 +4,8 @@ import 'package:intl/intl.dart';
 import '../screens/history_detail_screen.dart';
 
 class HistoryItem {
+  final String processingOption;
+  final List<Map<String, dynamic>> statusHistory;
   final String requestId;
   final String transactionId;
   final String title;
@@ -20,6 +22,8 @@ class HistoryItem {
   final DateTime? dateClaimed;
 
   HistoryItem({
+    this.processingOption = 'standard',
+    this.statusHistory = const [],
     this.requestId = '',
     this.transactionId = '',
     required this.title,
@@ -82,6 +86,7 @@ class HistoryItem {
     final normalized = normalizedRefundStatus;
     if (normalized.isEmpty) return false;
     return normalized == 'refunded' ||
+        normalized.contains('approv') ||
         normalized.contains('complete') ||
         normalized.contains('sent') ||
         normalized.contains('paid_out') ||
@@ -114,24 +119,40 @@ class HistoryItem {
     return readable.isEmpty ? 'REFUND UPDATE' : 'REFUND $readable';
   }
 
-  String get displayStatus => status.toUpperCase();
+  String get displayStatus {
+    final normRefund = normalizedRefundStatus;
+    if (normRefund.contains('approv')) return 'REFUND APPROVED';
+    if (normRefund == 'refunded') return 'REFUNDED';
+    final normStatus = status.trim().toLowerCase().replaceAll('-', '_').replaceAll(' ', '_');
+    if (normStatus == 'ready_to_claim' || normStatus == 'released') {
+      return 'READY TO CLAIM';
+    }
+    return status.toUpperCase();
+  }
 
   Color get statusColor {
-    final normalized = status.trim().toLowerCase();
-    if (normalized.contains('complete') ||
-        normalized.contains('approved') ||
-        normalized.contains('released')) {
-        normalized.contains('released') ||
-        normalized.contains('claim')) {
+    final currentDisplay = displayStatus.toLowerCase();
+    if (currentDisplay.contains('ready to claim') ||
+        currentDisplay.contains('refund approved') ||
+        currentDisplay.contains('complete') ||
+        currentDisplay.contains('approved') ||
+        currentDisplay.contains('released') ||
+        currentDisplay.contains('claim')) {
       return const Color(0xFF2E7D32);
     }
-    if (normalized.contains('reject') ||
-        normalized.contains('declin') ||
-        normalized.contains('cancel') ||
-        normalized.contains('denied')) {
+    if (currentDisplay.contains('reject') ||
+        currentDisplay.contains('declin') ||
+        currentDisplay.contains('cancel') ||
+        currentDisplay.contains('denied')) {
       return const Color(0xFFC62828);
     }
-    if (normalized.contains('refund') || normalized.contains('payment')) {
+    if (currentDisplay.contains('pending')) {
+      return const Color(0xFFD4A017);
+    }
+    if (currentDisplay.contains('process')) {
+      return const Color(0xFF1565C0);
+    }
+    if (currentDisplay.contains('refund') || currentDisplay.contains('payment')) {
       return const Color(0xFFE65100);
     }
     return const Color(0xFF1565C0);
@@ -615,7 +636,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
     required VoidCallback onTap,
   }) {
     final statusColor = item.statusColor;
-    final displayDate = DateFormat('MMM d, y').format(item.date);
     final displayDate = item.dateClaimed != null
         ? 'Claimed: ${DateFormat('MMM d, y').format(item.dateClaimed!)}'
         : DateFormat('MMM d, y').format(item.date);

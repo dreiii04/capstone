@@ -43,6 +43,11 @@ const refundSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
+  userReason: { type: String, default: '' },
+  refundMethod: { type: String, default: '' },
+  accountName: { type: String, default: '' },
+  accountNumber: { type: String, default: '' },
+  bankName: { type: String, default: '' },
   status: {
     type: String,
     enum: ['Pending', 'Approved', 'Rejected'],

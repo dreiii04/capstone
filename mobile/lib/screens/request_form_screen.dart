@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../models/api_date_time.dart';
 import '../models/document_catalog.dart';
+import '../models/profile_data.dart';
 import '../widgets/custom_font.dart';
 import '../services/mongo_data_api_service.dart';
 import '../widgets/confirmation_dialog.dart';
@@ -11,7 +12,14 @@ import '../widgets/simple_message_dialog.dart';
 import '../widgets/request_progress_indicator.dart';
 
 class RequestFormScreen extends StatefulWidget {
-  const RequestFormScreen({super.key});
+  final ProfileData? profile;
+  final bool? isAlumni; // kept for backward compatibility
+
+  const RequestFormScreen({
+    super.key,
+    this.profile,
+    this.isAlumni,
+  });
 
   @override
   State<RequestFormScreen> createState() => _RequestFormScreenState();
@@ -24,9 +32,57 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
   String? _selectedPurpose;
   bool _isConfirmed = false;
   bool _isSubmitting = false;
+  String _userRole = '';
+  @override
+  void initState() {
+    super.initState();
+    if (widget.profile != null) {
+      _userRole = widget.profile!.documentEligibilityRole;
+    } else if (widget.isAlumni == true) {
+      _userRole = 'alumni';
+    } else {
+      final cached = MongoDataApiService.instance.cachedProfile;
+      if (cached != null) {
+        _userRole = cached.documentEligibilityRole;
+      }
+      _resolveUserRole();
+    }
+  }
 
-  final TextEditingController _otherDocumentController =
-      TextEditingController();
+  Future<void> _resolveUserRole() async {
+    final cached = MongoDataApiService.instance.cachedProfile;
+    if (cached != null) {
+      final resolved = cached.documentEligibilityRole;
+      if (resolved != _userRole && mounted) {
+        setState(() {
+          _userRole = resolved;
+          _clearInvalidSelection();
+        });
+      }
+      return;
+    }
+    try {
+      final profile = await MongoDataApiService.instance.fetchProfile();
+      final resolved = profile.documentEligibilityRole;
+      if (mounted && resolved != _userRole) {
+        setState(() {
+          _userRole = resolved;
+          _clearInvalidSelection();
+        });
+      }
+    } catch (_) {}
+  }
+
+  void _clearInvalidSelection() {
+    if (_mainDocType != null &&
+        !isDocumentAllowedForRole(_mainDocType!, _userRole)) {
+      _mainDocType = null;
+    }
+  }
+
+  List<DocumentOption> get _availableDocs =>
+      getAvailableDocumentOptions(normalizedRole: _userRole);
+
   final TextEditingController _otherPurposeController = TextEditingController();
 
   final List<String> purposes = [
@@ -98,24 +154,31 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
     }
 
     // Prepare data for the Tracking screen.
-    String finalDocName = (_mainDocType == 'Others')
-        ? _otherDocumentController.text.trim()
-        : _mainDocType!;
+    String finalDocName = _mainDocType!;
 
     String finalPurpose = (_selectedPurpose == 'Others')
         ? _otherPurposeController.text.trim()
         : _selectedPurpose!;
 
+    if (!isDocumentAllowedForRole(finalDocName, _userRole)) {
+      _showErrorDialog("You are not eligible to request this document.");
+      return;
+    }
+
+    final amountLabel =
+        'Total: PHP ${documentPriceForName(finalDocName).toStringAsFixed(2)}.';
+    setState(() => _isSubmitting = true);
     final confirmed = await showConfirmationDialog(
       context,
       title: 'Submit Request',
       message:
-          'Are you sure you want to submit a request for "$finalDocName" for "$finalPurpose"?',
-      confirmLabel: 'Submit',
-      cancelLabel: 'Review',
+          'Submit a request for "$finalDocName" for "$finalPurpose"? $amountLabel',
+      confirmLabel: 'Confirm',
+      cancelLabel: 'Cancel',
       icon: Icons.description_outlined,
     );
-    if (!confirmed || !mounted) return;
+    if (!mounted) return;
+    if (!confirmed) { setState(() => _isSubmitting = false); return; }
 
     setState(() {
       _isSubmitting = true;
@@ -126,6 +189,7 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
       response = await MongoDataApiService.instance.createDocumentRequest(
         docName: finalDocName,
         purpose: finalPurpose,
+        processingOption: 'standard',
       );
     } catch (e) {
       if (!mounted) return;
@@ -164,8 +228,6 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
     final totalAmount = _parseAmount(requestMap['totalAmount']);
     final resolvedTotal = totalAmount > 0 ? totalAmount : documentPrice;
     final dateCreated = parseApiDateTime(requestMap['createdAt']);
-    final displayStatus = statusRaw.trim().toLowerCase() == 'pending_completion'
-        ? 'PENDING TO COMPLETE'
     final displayStatus = statusRaw.trim().toLowerCase() == 'pending_completion' ||
             statusRaw.trim().toLowerCase() == 'pending'
         ? 'PENDING'
@@ -178,6 +240,7 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
           request: PendingRequest(
             requestId: requestId.isEmpty ? null : requestId,
             status: displayStatus,
+            processingOption: 'standard',
             purpose: finalPurpose,
             docName: finalDocName,
             dateCreated: dateCreated,
@@ -192,7 +255,6 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
   bool get _hasEnteredData {
     return _mainDocType != null ||
         _selectedPurpose != null ||
-        _otherDocumentController.text.trim().isNotEmpty ||
         _otherPurposeController.text.trim().isNotEmpty;
   }
 
@@ -226,7 +288,6 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
 
   @override
   void dispose() {
-    _otherDocumentController.dispose();
     _otherPurposeController.dispose();
     super.dispose();
   }
@@ -318,7 +379,7 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
               _buildDropdown(
                 hint: "Choose Document",
                 value: _mainDocType,
-                items: documentOptions.map((doc) => doc.name).toList(),
+                items: _availableDocs.map((doc) => doc.name).toList(),
                 onChanged: (val) => setState(() => _mainDocType = val),
                 validator: (val) {
                   if (val == null || val.trim().isEmpty) {
@@ -327,16 +388,6 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
                   return null;
                 },
               ),
-
-              if (_mainDocType == 'Others') ...[
-                SizedBox(height: 10.h),
-                TextFormField(
-                  controller: _otherDocumentController,
-                  decoration: _inputDecoration(hint: "Please specify document"),
-                  validator: (value) =>
-                      _validateOtherInput(value, 'the document'),
-                ),
-              ],
 
               // 3. Purpose Dropdown
               _buildLabel("Purpose of Request:"),
@@ -364,7 +415,7 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
                 ),
               ],
 
-              SizedBox(height: 120.h), // Spacing before footer
+              SizedBox(height: 30.h),
 
               // 5. Checkbox
               Row(
@@ -514,7 +565,7 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
               ),
             ],
           ),
-          ...documentOptions.map(
+          ..._availableDocs.map(
             (doc) => TableRow(
               decoration: BoxDecoration(
                 border: Border(

@@ -1,3 +1,5 @@
+import '../widgets/request_status_tracker.dart';
+import 'payment_method_screen.dart';
 import 'package:capstone_project/constants.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -8,98 +10,18 @@ import '../screens/pending_screen.dart';
 import '../models/request_status.dart';
 
 class RequestDetailsScreen extends StatelessWidget {
-import '../services/mongo_data_api_service.dart';
-
-class RequestDetailsScreen extends StatefulWidget {
   final PendingRequest request;
   const RequestDetailsScreen({super.key, required this.request});
 
-  @override
-  State<RequestDetailsScreen> createState() => _RequestDetailsScreenState();
-}
-
-class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
-  bool _isClaiming = false;
-
   String _amountLabel(double value) => 'PHP ${value.toStringAsFixed(2)}';
-
-  Future<void> _handleClaim() async {
-    final requestId = widget.request.requestId?.trim() ?? '';
-    if (requestId.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Missing Request ID. Please refresh and try again.'),
-        ),
-      );
-      return;
-    }
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Claim Document'),
-        content: Text(
-          'Have you received your ${widget.request.docName}? This will confirm receipt and move the request to History.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF2E7D32),
-            ),
-            child: const Text(
-              'Confirm Claim',
-              style: TextStyle(color: Colors.white),
-            ),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true || !mounted) return;
-
-    setState(() => _isClaiming = true);
-    try {
-      await MongoDataApiService.instance.claimRequest(requestId: requestId);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Document claimed successfully! Moved to History.'),
-          backgroundColor: Color(0xFF2E7D32),
-        ),
-      );
-      Navigator.pop(context, true);
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _isClaiming = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            e.toString().replaceFirst(RegExp(r'^Exception:\s*'), ''),
-          ),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
-    final request = this.request;
-    final request = widget.request;
     final statusUpper = request.status.toUpperCase();
     final needsPayment = requestNeedsPayment(request.status);
-    final canPay = needsPayment && request.totalAmount > 0;
-    final pendingCompletion = statusUpper == 'PENDING TO COMPLETE';
-    final statusNote = needsPayment
-        ? "Payment is required to continue processing your request. Please complete your payment to proceed."
-        : pendingCompletion
-            ? "Payment received. Your request is pending completion."
-            : "Your request is being processed.";
+    final isPendingForPayment =
+        statusUpper == 'PENDING FOR PAYMENT' || needsPayment;
+    final canPay = isPendingForPayment && request.totalAmount > 0;
     final isReadyToClaim =
         statusUpper == 'READY TO CLAIM' || statusUpper == 'RELEASED';
     final isClaimed = statusUpper == 'CLAIMED';
@@ -107,37 +29,46 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
         statusUpper == 'PROCESSING' || statusUpper == 'IN PROCESS';
     final isPending =
         statusUpper == 'PENDING' || statusUpper == 'PENDING TO COMPLETE';
+    final receiptPending = request.receiptStatus == 'Pending Verification';
+    final receiptNeedsUpdate = request.correctionType == 'receipt' &&
+        const ['Rejected', 'Needs Update'].contains(request.receiptStatus);
 
-    final String statusNote;
-    if (needsPayment) {
+    String statusNote;
+    if (isPendingForPayment) {
       statusNote =
           "Payment is required to continue processing your request. Please complete your payment to proceed.";
     } else if (isReadyToClaim) {
-      statusNote = "Your document is ready to claim! Tap below to confirm receipt.";
       statusNote =
-          "Your document is ready for pickup/claim! Please proceed to the Registrar's Office to claim your document.";
+          "Your document is ready to claim. Please proceed to the Registrar's Office to claim your document.";
     } else if (isClaimed) {
-      statusNote = "Document claimed.";
       statusNote = "This document has been claimed.";
     } else if (isProcessing) {
-      statusNote = "Your request is being processed.";
+      statusNote = "Your request is currently being processed.";
+    } else if (receiptNeedsUpdate) {
+      statusNote = 'Your receipt needs to be updated before your request can continue.';
+    } else if (receiptPending) {
+      statusNote = 'Pending Verification: Your receipt is waiting for review.';
     } else if (isPending) {
-      statusNote = "Payment received. Your request is pending processing.";
+      statusNote =
+          "Your request has been received and is waiting for processing.";
     } else {
-      statusNote = "Your request is being processed.";
+      statusNote = request.remarks.isNotEmpty ? request.remarks : "Current registrar status: ${request.status}.";
     }
 
-    Color badgeBgColor = Colors.yellow.shade100;
-    Color badgeTextColor = Colors.yellow.shade800;
-    if (isReadyToClaim || isClaimed) {
+    Color badgeBgColor = const Color(0xFFFEF9C3);
+    Color badgeTextColor = const Color(0xFF854D0E);
+    if (isPendingForPayment) {
+      badgeBgColor = const Color(0xFFFEF3C7);
+      badgeTextColor = const Color(0xFFB45309);
+    } else if (isReadyToClaim || isClaimed) {
       badgeBgColor = const Color(0xFFD4EDDA);
       badgeTextColor = const Color(0xFF155724);
     } else if (isProcessing) {
-      badgeBgColor = const Color(0xFFE8F5E9);
-      badgeTextColor = const Color(0xFF2E7D32);
+      badgeBgColor = const Color(0xFFFFEDD5);
+      badgeTextColor = const Color(0xFFC2410C);
     } else if (isPending) {
-      badgeBgColor = const Color(0xFFDDEAF2);
-      badgeTextColor = const Color(0xFF356A86);
+      badgeBgColor = const Color(0xFFFEF9C3);
+      badgeTextColor = const Color(0xFF854D0E);
     }
 
     return Scaffold(
@@ -165,10 +96,49 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
               if (request.requestId != null && request.requestId!.isNotEmpty)
                 _buildInfoRow("Request ID:", request.requestId!),
               _buildInfoRow("Type of Document:", request.docName),
+              _buildInfoRow("Processing:", request.processingOption.toUpperCase()),
               _buildInfoRow("Purpose of Request:", request.purpose),
               _buildInfoRow("Date Requested:",
                   DateFormat('MMMM d, y').format(request.dateCreated)),
+              if (isProcessing) ...[
+                const Divider(),
+                if (request.processingStartedAt != null)
+                  _buildInfoRow("Processing Started:",
+                      DateFormat('MMMM d, y').format(request.processingStartedAt!)),
+                if (request.estimatedProcessingStart != null)
+                  _buildInfoRow("Estimated Processing Start:",
+                      DateFormat('MMMM d, y').format(request.estimatedProcessingStart!)),
+                if (request.processingDays != null)
+                  _buildInfoRow("Processing Time:",
+                      '${request.processingDays} business days'),
+                _buildInfoRow("Estimated Completion:",
+                    request.estimatedCompletionDate == null
+                        ? 'Not yet available'
+                        : DateFormat('MMMM d, y')
+                            .format(request.estimatedCompletionDate!)),
+              ],
             ]),
+            SizedBox(height: 15.h),
+            RequestStatusTracker(status: request.status, createdAt: request.dateCreated,
+              history: request.statusHistory, remarks: request.remarks,
+              processingStartedAt: request.processingStartedAt,
+              estimatedProcessingStart: request.estimatedProcessingStart,
+              estimatedCompletionDate: request.estimatedCompletionDate),
+            if (receiptNeedsUpdate)
+              Padding(padding: const EdgeInsets.symmetric(vertical: 12), child: _buildSectionCard('Receipt Needs Update', [
+                const Text('Your submitted receipt could not be verified. Please upload a clearer or valid receipt.'),
+                const SizedBox(height: 8),
+                Text('Reason: ${request.receiptRejectionReason.isNotEmpty ? request.receiptRejectionReason : request.remarks}'),
+                const SizedBox(height: 12),
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.upload_file), label: const Text('Resubmit Receipt'),
+                  onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PaymentMethodScreen(request: request))),
+                ),
+              ])),
+            if (receiptPending)
+              Padding(padding: const EdgeInsets.symmetric(vertical: 12), child: _buildSectionCard('Pending Verification', [
+                const Text('Your receipt has been submitted and is waiting for verification.'),
+              ])),
             SizedBox(height: 15.h),
             _buildSectionCard("Request Status", [
               _buildInfoRow(
@@ -179,12 +149,6 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
               Container(
                 padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 4.h),
                 decoration: BoxDecoration(
-                    color: Colors.yellow.shade100,
-                    borderRadius: BorderRadius.circular(5.r)),
-                child: Text(request.status,
-                    style: TextStyle(
-                        color: Colors.yellow.shade800,
-                        fontWeight: FontWeight.bold)),
                   color: badgeBgColor,
                   borderRadius: BorderRadius.circular(5.r),
                 ),
@@ -200,7 +164,7 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
               Text(
                 statusNote,
                 style: TextStyle(
-                  color: needsPayment ? Colors.red : Colors.black54,
+                  color: isPendingForPayment ? const Color(0xFFB45309) : Colors.black54,
                   fontSize: 11,
                 ),
               ),
@@ -211,6 +175,8 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
                 "Document Price:",
                 _amountLabel(request.documentPrice),
               ),
+              if (request.totalAmount > request.documentPrice)
+                _buildInfoRow("Processing Fee:", _amountLabel(request.totalAmount - request.documentPrice)),
               const Divider(),
               _buildInfoRow(
                 "Total Amount Due:",
@@ -218,7 +184,7 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
                 isBold: true,
               ),
               SizedBox(height: 15.h),
-              if (needsPayment && !canPay)
+              if (isPendingForPayment && !canPay)
                 const Text(
                   'The Registrar must set the payment amount before you can pay.',
                   style: TextStyle(color: Colors.redAccent),
@@ -243,34 +209,6 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
                         fontSize: 14.sp),
-                  ),
-                ),
-              if (isReadyToClaim)
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: ElevatedButton.icon(
-                    key: const Key('claim_document_button'),
-                    onPressed: _isClaiming ? null : _handleClaim,
-                    icon: _isClaiming
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Icon(Icons.check_circle_outline, color: Colors.white),
-                    label: CustomFont(
-                      text: _isClaiming ? "Claiming..." : "Claim Document",
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14.sp,
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF2E7D32),
-                      padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 10.h),
-                    ),
                   ),
                 ),
             ]),

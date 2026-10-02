@@ -37,6 +37,9 @@ class _PaymentDetailsScreenState extends State<PaymentDetailsScreen> {
           children: [
             _buildSectionCard("Billing Summary", [
               _infoRow("Document Requested", widget.request.docName),
+              _infoRow("Processing", widget.request.processingOption.toUpperCase()),
+              if (widget.request.totalAmount > widget.request.documentPrice)
+                _infoRow("Processing Fee", _amountLabel(widget.request.totalAmount - widget.request.documentPrice)),
               _infoRow(
                 "Document Price",
                 _amountLabel(widget.request.documentPrice),

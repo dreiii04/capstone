@@ -36,13 +36,43 @@ const requestSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['Pending', 'In Process', 'Released', 'Rejected'],
-    default: 'Pending'
+    enum: [
+      'Pending for Payment',
+      'Pending',
+      'Needs Update',
+      'In Process',
+      'Released',
+      'Ready to Claim',
+      'Claimed',
+      'Refund Approved',
+      'Refunded',
+      'Completed',
+      'Rejected',
+    ],
+    default: 'Pending for Payment'
   },
+  refundStatus: {
+    type: String,
+    default: ''
+  },
+  claimedAt: {
+    type: Date,
+    default: null
+  },
+  processingStartedAt: { type: Date, default: null },
+  processingDays: { type: Number, min: 1, default: null },
+  estimatedCompletionDate: { type: String, default: '' },
+  estimatedProcessingStart: { type: Date, default: null },
+  estimatedProcessingEnd: { type: Date, default: null },
   rejectionReason: {
     type: String,
     default: ''
   },
+  correctionType: { type: String, default: '' },
+  remarks: { type: String, default: '' },
+  mobileStatus: { type: String, default: '' },
+  statusHistory: { type: [mongoose.Schema.Types.Mixed], default: [] },
+  paymentReceiptId: { type: String, default: '' },
   documentType: {
     type: String,
     required: true

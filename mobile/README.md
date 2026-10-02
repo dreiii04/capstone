@@ -75,3 +75,35 @@ flutter run
 flutter analyze
 flutter test
 ```
+
+## Request processing and account recovery configuration
+
+New mobile passwords support 8–1024 characters (including long UTF-8
+passwords). New credentials use Node.js scrypt with a random salt; existing
+bcrypt hashes remain valid for login. The mobile API rejects passwords longer
+than 1024 characters before hashing or verification. Legacy bcrypt credentials
+retain bcrypt's 72-byte comparison behavior until the account holder changes
+or resets the password. The email entered at registration is trimmed and
+lowercased, and ownership is still proven through the existing OTP flow.
+
+Express stays unavailable until the Registrar supplies all policy values.
+Configure `EXPRESS_REQUEST_POLICY` on the **mobile backend** with JSON shaped
+like this (the values below illustrate the format and are not school policy):
+
+```json
+{"documents":["<eligible catalog document>"],"additionalFee":0,"processingTime":"<Registrar-approved target>","startsWhen":"<Registrar-approved starting event>"}
+```
+
+The backend calculates the extra fee and total from this policy; values sent
+by a client cannot change the price. `GET /api/request-policy` exposes the
+published options to the app. Express requests receive `processingOption:
+"express"` and `priority: 1` in the shared MongoDB request record. Staff
+software must read these fields to display and sort Express requests.
+
+The tracking UI maps stored statuses as follows: `Pending for Payment` waits
+for a receipt; `Pending` waits for staff; `In Process` is processing;
+`Released`/`Ready to Claim` is ready; `Claimed`/`Completed` is finished.
+`Needs Update`, `Rejected`, and `Cancelled` are shown as exceptions. A stage
+gets a timestamp only when the backend has recorded one in `statusHistory`.
+For older records without that history, the app shows the current status and
+its known request date without inventing prior progress.

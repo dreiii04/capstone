@@ -137,6 +137,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
     setState(() => _isSaving = true);
+    final confirmed = await showConfirmationDialog(context, title: 'Save Account Changes',
+      message: 'Save these changes to your account profile?');
+    if (!mounted) return;
+    if (!confirmed) { setState(() => _isSaving = false); return; }
 
     final updated = ProfileData(
       id: widget.profile.id,

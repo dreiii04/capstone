@@ -46,16 +46,47 @@ class _PasswordScreenState extends State<PasswordScreen> {
   final _emailRegex =
       RegExp(r'^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$');
 
+  static const _pinCount = 6;
+  final List<String> _digits = List.filled(_pinCount, '');
+
   bool _codeSent = false;
   bool _isBusy = false;
   String _sentEmail = '';
   String? _challengeToken;
   String? _devOtp;
+  String? _verificationError;
   int _resendSeconds = 0;
   Timer? _resendTimer;
 
+  bool get _isOtpFilled => _digits.every((d) => d.isNotEmpty);
+
+  @override
+  void initState() {
+    super.initState();
+    _otpController.addListener(_onOtpChanged);
+  }
+
+  void _onOtpChanged() {
+    final raw = _otpController.text.replaceAll(RegExp(r'\D'), '');
+    final clamped = raw.length > _pinCount ? raw.substring(0, _pinCount) : raw;
+    if (_otpController.text != clamped) {
+      _otpController.value = _otpController.value.copyWith(
+        text: clamped,
+        selection: TextSelection.collapsed(offset: clamped.length),
+      );
+      return;
+    }
+    setState(() {
+      _verificationError = null;
+      for (int i = 0; i < _pinCount; i++) {
+        _digits[i] = i < clamped.length ? clamped[i] : '';
+      }
+    });
+  }
+
   @override
   void dispose() {
+    _otpController.removeListener(_onOtpChanged);
     _resendTimer?.cancel();
     _emailController.dispose();
     _otpController.dispose();
@@ -67,15 +98,6 @@ class _PasswordScreenState extends State<PasswordScreen> {
     final email = value?.trim() ?? '';
     if (email.isEmpty) return 'Enter your registered email';
     if (!_emailRegex.hasMatch(email)) return 'Enter a valid email address';
-    return null;
-  }
-
-  String? _validateOtp(String? value) {
-    final otp = value?.trim() ?? '';
-    if (otp.isEmpty) return 'Enter the six-digit code';
-    if (!RegExp(r'^\d{6}$').hasMatch(otp)) {
-      return 'The verification code must contain six digits';
-    }
     return null;
   }
 
@@ -124,7 +146,14 @@ class _PasswordScreenState extends State<PasswordScreen> {
         _codeSent = true;
         _devOtp = kDebugMode ? challenge.developmentOtp : null;
         _isBusy = false;
+        _verificationError = null;
+        for (int i = 0; i < _pinCount; i++) {
+          _digits[i] = '';
+        }
       });
+      if (challenge.developmentOtp?.length == _pinCount) {
+        _otpController.text = challenge.developmentOtp!;
+      }
       _startResendCooldown();
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _otpFocusNode.requestFocus();
@@ -143,7 +172,10 @@ class _PasswordScreenState extends State<PasswordScreen> {
   Future<void> _verifyOtp() async {
     if (_isBusy || !_codeSent) return;
     FocusManager.instance.primaryFocus?.unfocus();
-    if (!(_otpFormKey.currentState?.validate() ?? false)) return;
+    if (!_isOtpFilled) {
+      setState(() => _verificationError = 'Enter all 6 digits');
+      return;
+    }
 
     final challengeToken = _challengeToken?.trim() ?? '';
     if (challengeToken.isEmpty) {
@@ -155,7 +187,10 @@ class _PasswordScreenState extends State<PasswordScreen> {
       return;
     }
 
-    setState(() => _isBusy = true);
+    setState(() {
+      _isBusy = true;
+      _verificationError = null;
+    });
     try {
       final verifier = widget.otpVerifier;
       final resetToken = verifier != null
@@ -184,12 +219,13 @@ class _PasswordScreenState extends State<PasswordScreen> {
       );
     } catch (error) {
       if (!mounted) return;
-      await showSimpleMessageDialog(
-        context,
-        error.toString().replaceFirst('Exception: ', ''),
-        title: 'Code not verified',
-      );
-      if (mounted) setState(() => _isBusy = false);
+      setState(() {
+        _isBusy = false;
+        _verificationError = error
+            .toString()
+            .replaceFirst('Exception: ', '')
+            .replaceFirst('Invalid argument(s): ', '');
+      });
     }
   }
 
@@ -202,6 +238,10 @@ class _PasswordScreenState extends State<PasswordScreen> {
       _challengeToken = null;
       _devOtp = null;
       _resendSeconds = 0;
+      _verificationError = null;
+      for (int i = 0; i < _pinCount; i++) {
+        _digits[i] = '';
+      }
     });
   }
 
@@ -213,19 +253,42 @@ class _PasswordScreenState extends State<PasswordScreen> {
         children: [
           Expanded(
             flex: 2,
-            child: Center(
-              child: Padding(
-                padding: const EdgeInsets.only(top: 40),
-                child: Image.asset(
-                  'assets/logo/logo.png',
-                  height: 80,
-                  errorBuilder: (_, __, ___) => const Icon(
-                    Icons.image_outlined,
-                    color: _primaryBlue,
-                    size: 50,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                Center(
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 40),
+                    child: Image.asset(
+                      'assets/logo/logo.png',
+                      height: 80,
+                      errorBuilder: (_, __, ___) => const Icon(
+                        Icons.image_outlined,
+                        color: _primaryBlue,
+                        size: 50,
+                      ),
+                    ),
                   ),
                 ),
-              ),
+                SafeArea(
+                  bottom: false,
+                  child: Align(
+                    alignment: Alignment.topLeft,
+                    child: IconButton(
+                      tooltip: _codeSent ? 'Change email' : 'Back to login',
+                      onPressed: () {
+                        if (_codeSent) {
+                          _changeEmail();
+                        } else {
+                          Navigator.maybePop(context);
+                        }
+                      },
+                      icon: const Icon(Icons.arrow_back_rounded),
+                      color: _darkNavy,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
           Expanded(
@@ -295,10 +358,10 @@ class _PasswordScreenState extends State<PasswordScreen> {
   Widget _buildHeader() {
     return Column(
       children: [
-        const Text(
-          'Forgot Password',
+        Text(
+          _codeSent ? 'Reset Password' : 'Forgot Password',
           textAlign: TextAlign.center,
-          style: TextStyle(
+          style: const TextStyle(
             color: Colors.white,
             fontSize: 22,
             fontWeight: FontWeight.bold,
@@ -307,7 +370,7 @@ class _PasswordScreenState extends State<PasswordScreen> {
         const SizedBox(height: 10),
         Text(
           _codeSent
-              ? 'Enter the six-digit code we sent. The code expires in 10 minutes.'
+              ? 'Enter the six-digit code sent to\n$_sentEmail'
               : 'Enter your registered email to receive a One-Time Password (OTP).',
           textAlign: TextAlign.center,
           style: const TextStyle(
@@ -339,7 +402,7 @@ class _PasswordScreenState extends State<PasswordScreen> {
             ),
             const SizedBox(height: 16),
             TextFormField(
-              key: const Key('forgot_email_field'),
+              key: const Key('password_reset_email_field'),
               controller: _emailController,
               validator: _validateEmail,
               keyboardType: TextInputType.emailAddress,
@@ -376,53 +439,7 @@ class _PasswordScreenState extends State<PasswordScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: const Color(0xFFEAF1F5),
-                borderRadius: BorderRadius.circular(13),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.mail_outline_rounded, color: _primaryBlue),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Code sent to',
-                          style: TextStyle(
-                            color: Color(0xFF687680),
-                            fontSize: 11,
-                          ),
-                        ),
-                        Text(
-                          _sentEmail,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: _darkNavy,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  TextButton(
-                    key: const Key('change_reset_email_button'),
-                    onPressed: _isBusy ? null : _changeEmail,
-                    child: const Text(
-                      'Change',
-                      style: TextStyle(color: _darkNavy),
-                    ),
-                  ),
-                ],
-              ),
-            ),
             if (_devOtp != null) ...[
-              const SizedBox(height: 12),
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
@@ -441,30 +458,67 @@ class _PasswordScreenState extends State<PasswordScreen> {
               ),
             ],
             const SizedBox(height: 18),
-            TextFormField(
-              key: const Key('reset_otp_field'),
-              controller: _otpController,
-              focusNode: _otpFocusNode,
-              validator: _validateOtp,
-              keyboardType: TextInputType.number,
-              textInputAction: TextInputAction.done,
-              textAlign: TextAlign.center,
-              autofillHints: const [AutofillHints.oneTimeCode],
-              maxLength: 6,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              onFieldSubmitted: (_) => _verifyOtp(),
-              style: const TextStyle(
-                color: _darkNavy,
-                fontSize: 23,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 10,
+            // 6 PIN boxes with transparent text field overlay
+            SizedBox(
+              height: 56,
+              child: Stack(
+                children: [
+                  // Visual PIN boxes
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: List.generate(_pinCount, (i) {
+                      final isFocused = _otpFocusNode.hasFocus &&
+                          _digits[i].isEmpty &&
+                          (i == 0 || _digits[i - 1].isNotEmpty);
+                      return _ResetPinBox(
+                        digit: _digits[i],
+                        isFocused: isFocused,
+                        hasError: _verificationError != null,
+                      );
+                    }),
+                  ),
+                  // Transparent text field on top to capture taps & keyboard
+                  Positioned.fill(
+                    child: TextField(
+                      key: const Key('reset_otp_field'),
+                      controller: _otpController,
+                      focusNode: _otpFocusNode,
+                      autofocus: true,
+                      enabled: !_isBusy,
+                      keyboardType: TextInputType.number,
+                      textInputAction: TextInputAction.done,
+                      autofillHints: const [AutofillHints.oneTimeCode],
+                      inputFormatters: [
+                        FilteringTextInputFormatter.digitsOnly,
+                        LengthLimitingTextInputFormatter(_pinCount),
+                      ],
+                      onSubmitted: (_) => _verifyOtp(),
+                      style: const TextStyle(color: Colors.transparent),
+                      cursorColor: Colors.transparent,
+                      decoration: const InputDecoration(
+                        border: InputBorder.none,
+                        counterText: '',
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              decoration: _inputDecoration(
-                label: 'Six-digit verification code',
-                icon: Icons.password_rounded,
-              ).copyWith(counterText: ''),
             ),
-            const SizedBox(height: 12),
+            if (_verificationError != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  _verificationError!,
+                  key: const Key('reset_otp_error'),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Color(0xFFFFDAD6),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            const SizedBox(height: 14),
             Wrap(
               alignment: WrapAlignment.center,
               crossAxisAlignment: WrapCrossAlignment.center,
@@ -490,7 +544,7 @@ class _PasswordScreenState extends State<PasswordScreen> {
             const SizedBox(height: 10),
             _primaryButton(
               key: const Key('verify_reset_code_button'),
-              onPressed: _isBusy ? null : _verifyOtp,
+              onPressed: (_isBusy || !_isOtpFilled) ? null : _verifyOtp,
               loading: _isBusy,
               loadingLabel: 'Verifying code...',
               label: 'Verify code',
@@ -581,7 +635,6 @@ class _PasswordScreenState extends State<PasswordScreen> {
     );
   }
 }
-
 class ResetPasswordScreen extends StatefulWidget {
   const ResetPasswordScreen({
     super.key,
@@ -626,7 +679,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     if (mounted) setState(() {});
   }
 
-  bool _validLength(String value) => value.length >= 8 && value.length <= 72;
+  bool _validLength(String value) => value.length >= 8 && value.length <= 1024;
   bool _hasLetterCases(String value) =>
       RegExp(r'[A-Z]').hasMatch(value) && RegExp(r'[a-z]').hasMatch(value);
   bool _hasNumber(String value) => RegExp(r'[0-9]').hasMatch(value);
@@ -788,7 +841,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
             ),
           ),
           const SizedBox(height: 12),
-          _requirement('8-72 characters', _validLength(password)),
+          _requirement('8-1024 characters', _validLength(password)),
           _requirement(
             'Uppercase and lowercase letters',
             _hasLetterCases(password),
@@ -930,6 +983,67 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// A single PIN digit box styled for the dark blue theme.
+class _ResetPinBox extends StatelessWidget {
+  const _ResetPinBox({
+    required this.digit,
+    required this.isFocused,
+    required this.hasError,
+  });
+
+  final String digit;
+  final bool isFocused;
+  final bool hasError;
+
+  @override
+  Widget build(BuildContext context) {
+    final borderColor = hasError
+        ? const Color(0xFFFF897D)
+        : isFocused
+            ? Colors.white
+            : const Color(0xFFD8E0E5);
+    final bgColor = digit.isNotEmpty ? Colors.white : const Color(0xFFF8FAFC);
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 150),
+      width: 46,
+      height: 56,
+      decoration: BoxDecoration(
+        color: bgColor,
+        border: Border.all(
+          color: borderColor,
+          width: isFocused ? 2.5 : 1.5,
+        ),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: isFocused
+            ? [
+                BoxShadow(
+                  color: Colors.white.withAlpha(120),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                )
+              ]
+            : [
+                BoxShadow(
+                  color: Colors.black.withAlpha(25),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                )
+              ],
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        digit,
+        style: const TextStyle(
+          fontSize: 22,
+          fontWeight: FontWeight.bold,
+          color: Color(0xFF213448),
+        ),
       ),
     );
   }

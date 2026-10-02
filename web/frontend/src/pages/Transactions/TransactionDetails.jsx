@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Layout from '../../components/Layout';
 import api from '../../api';
-import { ArrowLeft, CheckCircle, XCircle, Clock, Image as ImageIcon, Eye, CreditCard, AlertCircle, User, FileText, RefreshCw, Edit3 } from 'lucide-react';
+import { ArrowLeft, CheckCircle, XCircle, Clock, Image as ImageIcon, Eye, CreditCard, AlertCircle, User, FileText, RefreshCw } from 'lucide-react';
+import { receiptRejectionReasons } from '../../receiptRejectionReasons';
 import ConfirmModal from '../../components/ConfirmModal';
 import FeedbackModal from '../../components/FeedbackModal';
 
@@ -16,9 +17,9 @@ const TransactionDetails = () => {
     const [zoomedImage, setZoomedImage] = useState(false);
     
     const userRole = localStorage.getItem('userRole') || 'registrar';
-    const isSuperAdmin = userRole === 'super admin';
-    const [isEditingStatus, setIsEditingStatus] = useState(false);
-    const [newStatus, setNewStatus] = useState('');
+    const canReviewReceipt = userRole === 'super admin' || userRole === 'registrar';
+    const [receiptReasonOption, setReceiptReasonOption] = useState('');
+    const [customReceiptReason, setCustomReceiptReason] = useState('');
     const [actionLoading, setActionLoading] = useState(false);
 
     // Confirm Modal
@@ -54,24 +55,31 @@ const TransactionDetails = () => {
         setFeedbackConfig({ title, message, type });
     };
 
-    const handleUpdateStatus = () => {
-        if (!newStatus) return;
+    const handleReceiptDecision = (status) => {
+        const reason = receiptReasonOption === 'Other' ? customReceiptReason.trim() : receiptReasonOption;
+        if (status === 'Needs Update' && !reason) {
+            showFeedback({ title: 'Reason Required', message: 'Select or enter a reason the receipt needs updating.' });
+            return;
+        }
         showConfirm({
-            title: 'Update Payment Status',
-            message: `Are you sure you want to force update this payment to "${newStatus}"?`,
-            type: 'warning',
-            confirmText: 'Update',
+            title: status === 'Completed' ? 'Approve Receipt' : 'Receipt Needs Update',
+            message: status === 'Completed' ? 'Approve this receipt and continue processing?' : `Mark this receipt as Needs Update? The user can resubmit it. Reason: ${reason}`,
+            type: status === 'Completed' ? 'info' : 'warning',
+            confirmText: status === 'Completed' ? 'Approve' : 'Needs Update',
             onConfirm: async () => {
                 setActionLoading(true);
                 try {
-                    await api.put(`/transactions/${txData.transactionId}/verify`, { status: newStatus });
+                    await api.put(`/transactions/${txData.transactionId}/verify`, {
+                        status, adminRemarks: status === 'Needs Update' ? reason : ''
+                    });
                     const res = await api.get(`/transactions/${id}`);
                     setTxData(res.data);
-                    setIsEditingStatus(false);
-                } catch {
+                    setReceiptReasonOption('');
+                    setCustomReceiptReason('');
+                } catch (error) {
                     showFeedback({
                         title: 'Update Failed',
-                        message: 'We hit a snag updating this transaction\'s status. Please check your connection and try again.',
+                        message: error.response?.data?.message || 'Could not review this receipt. Please try again.',
                         type: 'error'
                     });
                 } finally {
@@ -138,7 +146,7 @@ const TransactionDetails = () => {
         switch (status) {
             case 'Completed': return { style: 'text-[#2D6A8E] bg-[#C6E7FF]', icon: <CheckCircle size={14} /> };
             case 'Pending Verification': return { style: 'text-[#857A00] bg-[#FCF7B0]', icon: <Clock size={14} /> };
-            case 'Needs Update': return { style: 'text-[#A32A2A] bg-[#FFC1C1]', icon: <RefreshCw size={14} /> };
+            case 'Needs Update': return { style: 'text-amber-700 bg-amber-100', icon: <RefreshCw size={14} /> };
             case 'Rejected': return { style: 'text-[#F04438] bg-[#FFD1D1]', icon: <XCircle size={14} /> };
             case 'Refunded': return { style: 'text-[#7C3AED] bg-[#E8D5F5]', icon: <RefreshCw size={14} /> };
             default: return { style: 'text-gray-600 bg-gray-100', icon: <Clock size={14} /> };
@@ -252,6 +260,9 @@ const TransactionDetails = () => {
                             <h4 className="text-[14px] font-bold text-[#1D2D44] mb-5 border-b border-gray-50 pb-3 uppercase tracking-wider flex items-center gap-2">
                                 <FileText size={16} /> Uploaded Payment Receipt
                             </h4>
+                            {txData.receiptHistory?.length > 0 && (
+                                <p className="mb-4 text-sm font-bold text-blue-700">Resubmitted receipt #{txData.receiptHistory.length + 1} — latest receipt shown below</p>
+                            )}
                             <div className="bg-[#F9FAFF] border border-dashed border-gray-200 rounded-xl p-6">
                                 {(txData.imageUrl || txData.receiptImage) && !(txData.imageUrl || txData.receiptImage).includes('undefined') ? (
                                     <div className="flex flex-col items-center gap-4">
@@ -277,6 +288,22 @@ const TransactionDetails = () => {
                                     </div>
                                 )}
                             </div>
+                            {txData.receiptHistory?.length > 0 && (
+                                <details className="mt-4 text-sm text-gray-600">
+                                    <summary className="cursor-pointer font-bold">Previous receipt submissions ({txData.receiptHistory.length})</summary>
+                                    <ul className="mt-2 space-y-2">
+                                        {txData.receiptHistory.map((previous, index) => (
+                                            <li key={index} className="rounded-lg border border-gray-200 p-3">
+                                                <span className="font-bold">Submission {index + 1}:</span> {previous.remarks || previous.status || 'Replaced'}
+                                                {previous.receiptImage && <a className="ml-2 text-blue-700 underline" target="_blank" rel="noreferrer"
+                                                    href={previous.receiptImage.startsWith('http') ? previous.receiptImage : `${API_BASE}${previous.receiptImage}`}>
+                                                    View receipt
+                                                </a>}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </details>
+                            )}
                         </div>
 
                         {/* Verification Status */}
@@ -306,49 +333,26 @@ const TransactionDetails = () => {
                                         <p className="text-[12px] font-bold uppercase text-gray-500">Current Status</p>
                                         <p className="text-[14px] font-bold text-gray-800">{txData.status}</p>
                                     </div>
-                                    {isSuperAdmin && !isEditingStatus && (
-                                        <button 
-                                            onClick={() => {
-                                                setNewStatus(txData.status);
-                                                setIsEditingStatus(true);
-                                            }}
-                                            className="ml-auto text-xs font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1"
-                                        >
-                                            <Edit3 size={12} /> Edit
-                                        </button>
-                                    )}
                                 </div>
 
-                                {/* Super Admin Status Edit Mode */}
-                                {isSuperAdmin && isEditingStatus && (
-                                    <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 mt-3 animate-in fade-in">
-                                        <p className="text-xs font-bold text-blue-800 mb-2 uppercase tracking-wide">Super Admin Override</p>
-                                        <select 
-                                            className="w-full p-2 border border-blue-200 rounded-md text-sm mb-3 outline-none"
-                                            value={newStatus}
-                                            onChange={(e) => setNewStatus(e.target.value)}
-                                        >
-                                            <option value="Pending Verification">Pending Verification</option>
-                                            <option value="Completed">Completed</option>
-                                            <option value="Needs Update">Needs Update</option>
-                                            <option value="Rejected">Rejected</option>
-                                            <option value="Refunded">Refunded</option>
+                                {txData.status === 'Pending Verification' && canReviewReceipt && (
+                                    <div className="p-4 bg-blue-50 rounded-lg border border-blue-100 space-y-3">
+                                        <p className="text-xs font-bold text-blue-800 uppercase">Review current receipt</p>
+                                        <select className="w-full p-2 border border-blue-200 rounded-md text-sm"
+                                            value={receiptReasonOption} onChange={(e) => setReceiptReasonOption(e.target.value)}>
+                                            <option value="">Select update reason</option>
+                                            {receiptRejectionReasons.map((reason) => <option key={reason} value={reason}>{reason}</option>)}
+                                            <option value="Other">Other reason</option>
                                         </select>
+                                        {receiptReasonOption === 'Other' && <textarea className="w-full p-2 border border-blue-200 rounded-md text-sm"
+                                            maxLength={500} value={customReceiptReason} onChange={(e) => setCustomReceiptReason(e.target.value)}
+                                            placeholder="Explain why this receipt cannot be verified" />}
                                         <div className="flex gap-2">
-                                            <button 
-                                                className="flex-1 py-2 text-xs font-bold text-gray-500 hover:bg-blue-100 rounded-md transition-colors"
-                                                onClick={() => setIsEditingStatus(false)}
-                                                disabled={actionLoading}
-                                            >
-                                                Cancel
-                                            </button>
-                                            <button 
-                                                className="flex-1 py-2 text-xs font-bold bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50"
-                                                onClick={handleUpdateStatus}
-                                                disabled={actionLoading}
-                                            >
-                                                {actionLoading ? 'Updating...' : 'Force Update'}
-                                            </button>
+                                            <button className="flex-1 py-2 text-xs font-bold bg-amber-600 text-white rounded-md disabled:opacity-50"
+                                                disabled={actionLoading || !receiptReasonOption || (receiptReasonOption === 'Other' && !customReceiptReason.trim())}
+                                                onClick={() => handleReceiptDecision('Needs Update')}>Needs Update</button>
+                                            <button className="flex-1 py-2 text-xs font-bold bg-blue-600 text-white rounded-md disabled:opacity-50"
+                                                disabled={actionLoading} onClick={() => handleReceiptDecision('Completed')}>Approve Receipt</button>
                                         </div>
                                     </div>
                                 )}
@@ -372,7 +376,7 @@ const TransactionDetails = () => {
                                 {/* Admin Remarks */}
                                 {txData.adminRemarks && (
                                     <div className="p-4 bg-gray-50 rounded-lg border border-gray-100">
-                                        <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1">Admin Remarks</p>
+                                        <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1">{txData.status === 'Needs Update' ? 'Update Reason' : 'Admin Remarks'}</p>
                                         <p className="text-[13px] text-gray-700 leading-relaxed">{txData.adminRemarks}</p>
                                     </div>
                                 )}

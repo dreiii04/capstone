@@ -1,10 +1,16 @@
+import 'package:capstone_project/models/profile_data.dart';
 import 'package:capstone_project/screens/request_form_screen.dart';
 import 'package:capstone_project/widgets/request_progress_indicator.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 class DataConsentScreen extends StatefulWidget {
-  const DataConsentScreen({super.key});
+  final ProfileData? profile;
+
+  const DataConsentScreen({
+    super.key,
+    this.profile,
+  });
 
   @override
   State<DataConsentScreen> createState() => _DataConsentScreenState();
@@ -162,7 +168,10 @@ class _DataConsentScreenState extends State<DataConsentScreen> {
                     ? () => Navigator.push(
                         context,
                         MaterialPageRoute(
-                            builder: (context) => const RequestFormScreen()))
+                          builder: (context) =>
+                              RequestFormScreen(profile: widget.profile),
+                        ),
+                      )
                     : null,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF233446),

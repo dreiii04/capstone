@@ -67,6 +67,15 @@ class ProfileData {
     return isFormerStudent || isAlumni || isMasters || isDoctorate;
   }
 
+  /// Returns the canonical role used for document eligibility filtering.
+  /// Maps masters/doctorate to 'alumni' since they share the same document
+  /// access rules.
+  String get documentEligibilityRole {
+    if (isCurrentStudent) return 'student';
+    if (isFormerStudent) return 'former_student';
+    return 'alumni'; // alumni, masters, doctorate all treated as alumni
+  }
+
   bool get usesSchoolLogin => isCurrentStudent;
 
   String get academicYearLabel {
@@ -119,7 +128,8 @@ class ProfileData {
 
     final personalEmail = readString('personalEmail');
     final email = readString('email');
-    final role = readString('role');
+    final status = readString('studentStatus');
+    final role = status.isNotEmpty ? status : readString('role');
     final profileImageUrl = readString('profileImageUrl');
     final profilePic = readString('profilePic');
 

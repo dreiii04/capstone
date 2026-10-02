@@ -1,4 +1,7 @@
-import bcrypt from 'bcryptjs';
+import { requestPolicy, processingForRequest } from './components/services/request-policy.service.js';
+import { createProcessingEstimate, recordedProcessingStart } from './components/services/processing-estimate.service.js';
+import { eligibilityRole } from './components/services/eligibility.service.js';
+import { hashPassword, verifyPassword, isPasswordHash } from './components/services/password.service.js';
 import {
   createHash,
   randomBytes,
@@ -11,6 +14,7 @@ import config, { refreshConfig } from './components/config/config.js';
 import {
   dummyPasswordHash,
   emailRegex,
+  isDocumentAllowedForRole,
   passwordRegex,
   personNameRegex,
   refundStatusAliases,
@@ -20,6 +24,7 @@ import {
 } from './components/config/constants.js';
 import {
   alumniUsers,
+  connectDatabase,
   client,
   dbEnabled,
   notifications,
@@ -41,6 +46,7 @@ import {
   notFoundHandler,
 } from './components/middleware/error.middleware.js';
 import {
+  emailAvailabilityLimiter,
   loginLimiter,
   otpRequestLimiter,
   otpVerifyLimiter,
@@ -53,7 +59,6 @@ import {
   validateUploadedImage,
 } from './components/middleware/upload.middleware.js';
 import {
-  defaultProcessingFee,
   getDocumentPrice,
   resolveDocumentPricing,
 } from './components/models/document.model.js';
@@ -439,6 +444,7 @@ function buildRefundGuidance({
 
   return {
     refundEligible,
+    refundEligibilityStatus: refundEligible ? 'Refund Eligible' : 'Not Eligible',
     paymentReceived,
     refundStatus: normalizedRefundStatus,
     refundRequestedAt: firstNonEmptyString(refundRequestedAt),
@@ -601,9 +607,21 @@ async function getUserByEmail(email) {
 async function createUserDocument(user) {
   if (dbEnabled) {
     const collection = getCollectionForRole(user.role);
-    return collection.insertOne(user);
+    const database = await connectDatabase();
+    const session = client.startSession();
+    try {
+      let result;
+      await session.withTransaction(async () => {
+        await database.collection('auth_email_claims').insertOne({
+          _id: normalizeEmail(user.email), createdAt: new Date(),
+        }, { session });
+        result = await collection.insertOne(user, { session });
+      });
+      return result;
+    } finally { await session.endSession(); }
   }
 
+  if (memoryUsers.has(user.email)) throw Object.assign(new Error('Email unavailable'), { code: 11000 });
   const id = user._id || user.id || makeUserId();
   memoryUsers.set(user.email, { ...user, _id: id });
   return { insertedId: id };
@@ -623,8 +641,9 @@ function buildReceiptRecord({
   mimeType,
   size,
 }) {
+  const submittedAt = new Date();
   return {
-    transactionId: `TXN-${Date.now()}`,
+    transactionId: `TXN-${Date.now().toString(36).toUpperCase()}-${randomBytes(4).toString('hex').toUpperCase()}`,
     transactionHash: `hash-${Date.now()}-${Math.round(Math.random() * 1e9)}`,
     requestId: firstNonEmptyString(trueRequestId),
     name: `${user?.firstName || ''} ${user?.lastName || ''}`.trim(),
@@ -636,7 +655,8 @@ function buildReceiptRecord({
     payerEmail: user?.email || '',
     payerType: getRequesterRoleLabel(user?.role),
     status: 'Pending Verification',
-    date: new Date(),
+    date: submittedAt,
+    lastSubmittedAt: submittedAt,
 
     // Legacy mobile fields
     userId: user?._id || user?.id,
@@ -657,7 +677,8 @@ function buildReceiptRecord({
     originalName,
     mimeType,
     size,
-    createdAt: new Date().toISOString(),
+    createdAt: submittedAt,
+    updatedAt: submittedAt,
   };
 }
 
@@ -668,6 +689,8 @@ function buildReceiptResponse(record) {
     id: id ? String(id) : '',
     amount: record.amount ?? null,
     status: record.status || '',
+    rejectionReason: firstNonEmptyString(record.rejectionReason, record.adminRemarks),
+    resubmissionCount: Array.isArray(record.receiptHistory) ? record.receiptHistory.length : 0,
     paymentType: record.paymentType || '',
     docName: record.docName || '',
     purpose: record.purpose || '',
@@ -1226,6 +1249,7 @@ function buildRefundResponse(record) {
   const id = record._id || record.id;
   return {
     id: id ? String(id) : '',
+    refundId: firstNonEmptyString(record.refundId, id),
     transactionId: firstNonEmptyString(record.transactionId),
     requestId: firstNonEmptyString(record.requestId),
     docName: firstNonEmptyString(record.docName),
@@ -1233,6 +1257,7 @@ function buildRefundResponse(record) {
     paymentType: firstNonEmptyString(record.paymentType),
     refundMethod: firstNonEmptyString(record.refundMethod),
     reason: firstNonEmptyString(record.reason),
+    userReason: firstNonEmptyString(record.userReason, record.otherReason),
     rejectionRemarks: firstNonEmptyString(record.rejectionRemarks),
     statusRemarks: getRefundStatusRemarks(record),
     status: firstNonEmptyString(record.status, 'pending'),
@@ -1385,7 +1410,8 @@ function buildTransactionResponse(
     : 0;
   const totalAmount = storedAmount > 0 ? storedAmount : linkedAmount;
   const refund = buildRefundGuidance({
-    status,
+    status: record.status === 'Completed' && isRejectedWorkflowStatus(linkedRequest?.status)
+      ? linkedRequest.status : 'Pending',
     amount: totalAmount,
     paymentType,
     refundStatus: refundRecord?.status || record.refundStatus,
@@ -1406,6 +1432,11 @@ function buildTransactionResponse(
     ),
     purpose: firstNonEmptyString(record.purpose, linkedRequest?.purpose),
     status,
+    receiptStatus: firstNonEmptyString(record.status),
+    receiptRejectionReason: ['Rejected', 'Needs Update'].includes(record.status)
+      ? firstNonEmptyString(record.rejectionReason, record.adminRemarks)
+      : '',
+    resubmissionCount: Array.isArray(record.receiptHistory) ? record.receiptHistory.length : 0,
     createdAt: record.createdAt || record.date || new Date().toISOString(),
     paymentType,
     totalAmount,
@@ -1681,7 +1712,6 @@ function isAwaitingPayment(record) {
   if (!record || firstNonEmptyString(record.paymentReceiptId)) return false;
 
   const pendingPaymentStatuses = new Set([
-    'pending',
     'pending_payment',
     'pending_for_payment',
     'awaiting_payment',
@@ -1700,6 +1730,61 @@ function isAwaitingPayment(record) {
   }
 
   return allStatuses.some((status) => pendingPaymentStatuses.has(status));
+}
+
+async function receiptCorrectionFor(user, request) {
+  const state = normalizeWorkflowStatus(request.status);
+  // Before receipt corrections were supported, web review marked the whole
+  // request Rejected with "Payment Issue". Keep those existing payments fixable.
+  const legacyReceiptRejection = state === 'rejected' &&
+    (String(request.rejectionReason || '').trim().toLowerCase() === 'payment issue' ||
+      request.correctionType === 'receipt') &&
+    !firstNonEmptyString(request.refundStatus);
+  if (!['pending', 'needs_update'].includes(state) && !legacyReceiptRejection) return null;
+  if (request.correctionType && request.correctionType !== 'receipt') return null;
+  const requestId = getRequestResponseId(request);
+  if (dbEnabled) return receipts.findOne({
+    $and: [{ requestId, status: { $in: ['Needs Update', 'Rejected'] } }, { $or: buildMongoOwnerClauses(user) }],
+  });
+  return memoryReceipts.find(r => r.requestId === requestId &&
+    ['Needs Update', 'Rejected'].includes(r.status) && recordBelongsToUser(r, user)) || null;
+}
+
+async function replacePaymentReceipt({ user, linkedRequest, previous, receipt }) {
+  const now = new Date();
+  const history = { receiptImage: previous.receiptImage || previous.imageUrl,
+    publicId: previous.publicId || previous.receiptImagePublicId || '',
+    submittedAt: previous.lastSubmittedAt || previous.updatedAt || previous.createdAt,
+    status: previous.status, remarks: previous.rejectionReason || previous.adminRemarks || '', replacedAt: now };
+  const updates = { receiptImage: receipt.receiptImage, imageUrl: receipt.imageUrl,
+    publicId: receipt.publicId, receiptImagePublicId: receipt.receiptImagePublicId,
+    originalName: receipt.originalName, mimeType: receipt.mimeType, size: receipt.size,
+    status: 'Pending Verification', mobileStatus: 'pending', adminRemarks: '', rejectionReason: '',
+    verifiedAt: null, verifiedBy: '', lastSubmittedAt: now, updatedAt: now };
+  const event = { status: 'Pending', at: now, remarks: 'Replacement receipt submitted for review.' };
+  const requestUpdates = { status: 'Pending', mobileStatus: 'pending', correctionType: '',
+    remarks: '', rejectionReason: '', updatedAt: now };
+  if (dbEnabled) {
+    const session = client.startSession();
+    try { await session.withTransaction(async () => {
+      const tx = await receipts.updateOne({ _id: previous._id, status: { $in: ['Needs Update', 'Rejected'] },
+        $or: buildMongoOwnerClauses(user) },
+        { $set: updates, $push: { receiptHistory: history } }, { session });
+      const changed = await requests.updateOne({ _id: linkedRequest._id, status: linkedRequest.status,
+        updatedAt: linkedRequest.updatedAt ?? { $exists: false },
+        $or: buildMongoOwnerClauses(user) },
+        { $set: requestUpdates, $push: { statusHistory: event } }, { session });
+      if (tx.modifiedCount !== 1 || changed.modifiedCount !== 1) throw new PaymentSubmissionConflictError();
+      await notifications.insertOne({ message: 'Replacement receipt submitted for request #' + getRequestResponseId(linkedRequest),
+        isRead: false, createdAt: now, updatedAt: now }, { session });
+    }); } finally { await session.endSession(); }
+  } else {
+    if (!await receiptCorrectionFor(user, linkedRequest)) throw new PaymentSubmissionConflictError();
+    Object.assign(previous, updates, { receiptHistory: [...(previous.receiptHistory || []), history] });
+    Object.assign(linkedRequest, requestUpdates, { statusHistory: [...(linkedRequest.statusHistory || []), event] });
+    memoryNotifications.push({ message: 'Replacement receipt submitted for request #' + getRequestResponseId(linkedRequest), isRead: false, createdAt: now });
+  }
+  return previous._id;
 }
 
 async function commitPaymentReceipt({ user, linkedRequest, receipt }) {
@@ -1747,6 +1832,7 @@ async function commitPaymentReceipt({ user, linkedRequest, receipt }) {
               paymentSubmissionId,
               updatedAt,
             },
+            $push: { statusHistory: { status: 'Pending', at: updatedAt, remarks: 'Receipt submitted for review.' } },
           },
           { session },
         );
@@ -1791,7 +1877,7 @@ async function commitPaymentReceipt({ user, linkedRequest, receipt }) {
   return receiptId;
 }
 
-function buildRequestResponse(record) {
+function buildRequestResponse(record, linkedReceipt = null) {
   if (!record) return null;
   const id = record._id || record.id;
   const docName = firstNonEmptyString(record.docName, record.documentType);
@@ -1807,14 +1893,14 @@ function buildRequestResponse(record) {
   const canonicalNormalized = normalizeWorkflowStatus(canonicalStatus);
   const mobileNormalized = normalizeWorkflowStatus(mobileStatus);
   const specializedPendingStatuses = new Set([
-    'pending',
     'pending_payment',
     'pending_for_payment',
     'awaiting_payment',
-    'pending_completion',
-    'pending_to_complete',
-    'pending_verification',
   ]);
+  const isAwaiting = isAwaitingPayment(record) ||
+    canonicalNormalized === 'pending_for_payment' ||
+    canonicalNormalized === 'pending_payment' ||
+    specializedPendingStatuses.has(mobileNormalized);
   const terminalStatus = [
     record.status,
     record.state,
@@ -1822,17 +1908,29 @@ function buildRequestResponse(record) {
     record.mobileStatus,
   ].find((candidate) =>
     isRejectedWorkflowStatus(candidate) || isTerminalWorkflowStatus(candidate));
-  const status = firstNonEmptyString(
-    terminalStatus
-      ? terminalStatus
-      : canonicalNormalized && canonicalNormalized !== 'pending'
-        ? canonicalStatus
-        : specializedPendingStatuses.has(mobileNormalized)
-          ? mobileStatus
-          : canonicalStatus,
-    mobileStatus,
-    'pending',
-  );
+
+  let status;
+  if (terminalStatus) {
+    status = terminalStatus;
+  } else if (canonicalNormalized === 'in_process' || canonicalNormalized === 'processing') {
+    status = 'In Process';
+  } else if (canonicalNormalized === 'pending') {
+    status = 'Pending';
+  } else if (
+    isAwaitingPayment(record) ||
+    canonicalNormalized === 'pending_for_payment' ||
+    canonicalNormalized === 'pending_payment' ||
+    mobileNormalized === 'pending_payment' ||
+    mobileNormalized === 'pending_for_payment'
+  ) {
+    status = 'Pending for Payment';
+  } else if (mobileNormalized === 'in_process' || mobileNormalized === 'processing') {
+    status = 'In Process';
+  } else if (mobileNormalized === 'pending') {
+    status = 'Pending';
+  } else {
+    status = firstNonEmptyString(canonicalStatus, mobileStatus, 'Pending');
+  }
   const remarks = getRecordRemarks(record);
   const paymentType = firstNonEmptyString(
     record.paymentType,
@@ -1840,7 +1938,7 @@ function buildRequestResponse(record) {
   );
   const refund = buildRefundGuidance({
     status,
-    amount: totalAmount,
+    amount: linkedReceipt?.status === 'Completed' ? totalAmount : 0,
     paymentType,
     refundStatus: record.refundStatus,
     refundRequestedAt: record.refundRequestedAt,
@@ -1849,6 +1947,23 @@ function buildRequestResponse(record) {
     id: id ? String(id) : '',
     requestId,
     linkedRequestId: requestId,
+    processingOption: record.processingOption || 'standard',
+    processingTime: record.processingTime || '',
+    processingStartedAt: record.processingStartedAt || null,
+    estimatedProcessingStart: record.estimatedProcessingStart || null,
+    estimatedProcessingEnd: record.estimatedProcessingEnd || null,
+    estimatedCompletionDate: record.estimatedProcessingEnd || record.estimatedCompletionDate || '',
+    processingDays: record.processingDays || null,
+    processingStartsWhen: record.processingStartsWhen || '',
+    statusHistory: record.statusHistory || [],
+    correctionType: record.correctionType || '',
+    receiptStatus: firstNonEmptyString(linkedReceipt?.status),
+    receiptUpdateReason: linkedReceipt?.status === 'Needs Update'
+      ? firstNonEmptyString(linkedReceipt.rejectionReason, linkedReceipt.adminRemarks)
+      : '',
+    requestRejectionReason: isRejectedWorkflowStatus(status)
+      ? firstNonEmptyString(record.rejectionReason, record.remarks)
+      : '',
     docName,
     purpose: record.purpose || '',
     status,
@@ -1926,6 +2041,44 @@ async function listRequestsForUser(user, statuses) {
   );
 }
 
+async function ensureLegacyProcessingEstimate(record) {
+  if (!dbEnabled || record.status !== 'In Process' ||
+      record.estimatedCompletionDate || record.estimatedProcessingEnd) {
+    return record;
+  }
+  let startedAt = record.processingStartedAt || recordedProcessingStart(record);
+  if (!startedAt) {
+    const requestId = getRequestResponseId(record);
+    const database = await connectDatabase();
+    const log = await database.collection('activitylogs').findOne({
+      details: { $in: [
+        `Updated request ${requestId} status to In Process`,
+        `[SUPER ADMIN] Bypassed verification for request ${requestId}, status set to In Process`,
+      ] },
+    }, { sort: { timestamp: 1 } });
+    startedAt = log?.timestamp || null;
+  }
+  if (!startedAt) {
+    const payment = await receipts.findOne({
+      requestId: getRequestResponseId(record),
+      status: 'Completed', verifiedAt: { $ne: null },
+    }, { sort: { verifiedAt: 1 } });
+    startedAt = payment?.verifiedAt || null;
+  }
+  if (!startedAt) return record;
+
+  const estimate = createProcessingEstimate(
+    record.documentType || record.docName, new Date(startedAt),
+  );
+  const result = await requests.updateOne({
+    _id: record._id, status: 'In Process',
+    estimatedCompletionDate: { $in: [null, ''] },
+  }, { $set: estimate });
+  return result.modifiedCount > 0
+    ? { ...record, ...estimate }
+    : await requests.findOne({ _id: record._id }) || record;
+}
+
 async function upsertUserDocument(user) {
   if (dbEnabled) {
     const { createdAt, ...userSet } = user;
@@ -2000,16 +2153,16 @@ async function updateUserPassword(
 
 async function ensurePasswordHash(user) {
   if (!user) return '';
-  if (/^\$2[aby]\$\d{2}\$/.test(String(user.passwordHash || ''))) {
+  if (isPasswordHash(user.passwordHash)) {
     return user.passwordHash;
   }
   if (!user.password) return '';
 
   const legacyPassword = String(user.password);
   if (!legacyPassword) return '';
-  const passwordHash = /^\$2[aby]\$\d{2}\$/.test(legacyPassword)
+  const passwordHash = isPasswordHash(legacyPassword)
     ? legacyPassword
-    : await bcrypt.hash(legacyPassword, 12);
+    : await hashPassword(legacyPassword);
   const expectedSessionVersion = Number(user.sessionVersion || 0);
 
   if (dbEnabled) {
@@ -2036,7 +2189,7 @@ async function ensurePasswordHash(user) {
       );
       if (result.matchedCount === 1) return passwordHash;
       const current = await getUserById(String(user._id));
-      return /^\$2[aby]\$\d{2}\$/.test(String(current?.passwordHash || ''))
+      return isPasswordHash(current?.passwordHash)
         ? current.passwordHash
         : '';
     }
@@ -2046,7 +2199,7 @@ async function ensurePasswordHash(user) {
     if (existing &&
         Number(existing.sessionVersion || 0) === expectedSessionVersion &&
         existing.password === user.password &&
-        !/^\$2[aby]\$\d{2}\$/.test(String(existing.passwordHash || ''))) {
+        !isPasswordHash(existing.passwordHash)) {
       memoryUsers.set(email, {
         ...existing,
         passwordHash,
@@ -2055,7 +2208,7 @@ async function ensurePasswordHash(user) {
       });
       return passwordHash;
     }
-    return /^\$2[aby]\$\d{2}\$/.test(String(existing?.passwordHash || ''))
+    return isPasswordHash(existing?.passwordHash)
       ? existing.passwordHash
       : '';
   }
@@ -2158,10 +2311,13 @@ function isValidPastOrCurrentYear(value) {
 
 function validateRegisterPayload(body) {
   const role = parseRegistrationRole(body.studentStatus || body.role);
-  const educationalLevel = normalizeEducationalLevel(body.educationalLevel);
+  const isStudent = role === 'student';
+  let educationalLevel = normalizeEducationalLevel(body.educationalLevel);
   const firstName = String(body.firstName || '').trim();
   const lastName = String(body.lastName || '').trim();
-  const personalEmail = normalizeEmail(body.email);
+  const email = normalizeEmail(isStudent ? body.schoolEmail || body.email : body.email);
+  const studentId = isStudent ? String(body.studentId || '').trim() : '';
+  const studentGradeLevel = isStudent ? String(body.yearLevel || '').trim() : '';
   const password = String(body.password || '');
   const submittedProgram = String(body.program || '').trim();
   const submittedYearGraduated = String(body.yearGraduated || '').trim();
@@ -2173,13 +2329,13 @@ function validateRegisterPayload(body) {
     body.lastYearLevelCompleted || '',
   ).trim();
 
-  if (role !== 'former_student' && role !== 'alumni') {
+  if (!['student', 'former_student', 'alumni'].includes(role)) {
     return {
-      error: 'Please select Former Student or Alumni.',
+      error: 'Please select Student, Former Student, or Alumni.',
     };
   }
 
-  if (!educationalLevel) {
+  if (!isStudent && !educationalLevel) {
     return { error: 'Select a valid educational level.' };
   }
 
@@ -2192,25 +2348,41 @@ function validateRegisterPayload(body) {
     return { error: 'Enter a valid last name (2-50 characters).' };
   }
 
-  if (!isValidEmail(personalEmail)) {
-    return { error: 'Enter a valid personal email address.' };
+  if (!isValidEmail(email)) {
+    return { error: isStudent ? 'Enter a valid school email address.' : 'Enter a valid personal email address.' };
+  }
+  if (isStudent && !studentIdRegex.test(studentId)) {
+    return { error: 'Student ID must be 4-30 letters, numbers, or hyphens.' };
+  }
+  if (isStudent && !new Set([
+    'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10', 'Grade 11', 'Grade 12',
+    '1st Year', '2nd Year', '3rd Year', '4th Year', '5th Year',
+  ]).has(studentGradeLevel)) {
+    return { error: 'Select a valid grade level.' };
+  }
+  if (isStudent) {
+    educationalLevel = ['Grade 11', 'Grade 12'].includes(studentGradeLevel)
+      ? 'shs'
+      : studentGradeLevel.endsWith(' Year') ? 'bachelors' : 'jhs';
   }
 
   if (!passwordRegex.test(password)) {
     return {
       error:
-        'Password must be 8-72 characters with uppercase, lowercase, number, and special character, without spaces.',
+        'Password must be 8-1024 characters with uppercase, lowercase, number, and special character, without spaces.',
     };
   }
 
-  const requiresProgram = new Set([
+  const isShs = educationalLevel === 'shs';
+  const requiresProgram = (isStudent && educationalLevel !== 'jhs') || (!isStudent && new Set([
     'bachelors',
     'masters',
     'doctorate',
-  ]).has(educationalLevel);
+    'shs',
+  ]).has(educationalLevel));
   if (requiresProgram &&
       (submittedProgram.length < 2 || submittedProgram.length > 100)) {
-    return { error: 'Select a valid program.' };
+    return { error: isShs ? 'Select a valid strand.' : 'Select a valid program.' };
   }
 
   let yearGraduated = '';
@@ -2223,7 +2395,7 @@ function validateRegisterPayload(body) {
       return { error: 'Select a valid graduation year.' };
     }
     yearGraduated = submittedYearGraduated;
-  } else {
+  } else if (role === 'former_student') {
     if (!isValidPastOrCurrentYear(submittedLastYearAttended)) {
       return { error: 'Select a valid last-attended year.' };
     }
@@ -2253,7 +2425,9 @@ function validateRegisterPayload(body) {
   }
 
   const program = requiresProgram ? submittedProgram : '';
-  const yearLevel = role === 'alumni' ? yearGraduated : lastYearAttended;
+  const yearLevel = isStudent
+    ? studentGradeLevel
+    : role === 'alumni' ? yearGraduated : lastYearAttended;
 
   return {
     role,
@@ -2261,11 +2435,11 @@ function validateRegisterPayload(body) {
     educationalLevel,
     firstName,
     lastName,
-    email: personalEmail,
+    email,
     password,
-    personalEmail,
-    schoolEmail: '',
-    studentId: '',
+    personalEmail: isStudent ? '' : email,
+    schoolEmail: isStudent ? email : '',
+    studentId,
     yearLevel,
     program,
     yearGraduated,
@@ -2328,6 +2502,7 @@ function validateProfilePayload(body) {
 }
 
 app.get('/health', healthCheck);
+app.get('/request-policy', (_req, res) => res.json({ success: true, ...requestPolicy() }));
 
 app.get('/profile', requireAuth, async (req, res, next) => {
   try {
@@ -2407,8 +2582,9 @@ app.post(
           message: 'Document request not found.',
         });
       }
-      if (!isAwaitingPayment(linkedRequest) ||
-          firstNonEmptyString(linkedRequest.paymentReceiptId)) {
+      const correction = await receiptCorrectionFor(user, linkedRequest);
+      if (!correction && (!isAwaitingPayment(linkedRequest) ||
+          firstNonEmptyString(linkedRequest.paymentReceiptId))) {
         return res.status(409).json({
           success: false,
           message: 'Payment has already been submitted for this request.',
@@ -2458,11 +2634,9 @@ app.post(
 
       let receiptId;
       try {
-        receiptId = await commitPaymentReceipt({
-          user,
-          linkedRequest,
-          receipt,
-        });
+        receiptId = correction
+          ? await replacePaymentReceipt({ user, linkedRequest, previous: correction, receipt })
+          : await commitPaymentReceipt({ user, linkedRequest, receipt });
       } catch (error) {
         if (error instanceof PaymentSubmissionConflictError) {
           await deleteUploadedReceipt(uploadResult?.public_id);
@@ -2476,6 +2650,8 @@ app.post(
       return res.status(201).json({
         success: true,
         receiptId,
+        receiptStatus: 'Pending Verification',
+        resubmitted: Boolean(correction),
       });
     } catch (error) {
       return next(error);
@@ -2539,17 +2715,29 @@ app.post('/requests', requireAuth, writeLimiter, async (req, res, next) => {
         .json({ success: false, message: 'User not found.' });
     }
 
+    if (!isDocumentAllowedForRole(docName, eligibilityRole(user))) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not eligible to request this document.',
+      });
+    }
+
     const documentPrice = getDocumentPrice(docName);
-    const processingFee = defaultProcessingFee;
+    let processing;
+    try { processing = processingForRequest(docName, req.body.processingOption || 'standard'); }
+    catch (error) { return res.status(400).json({ success: false, message: error.message }); }
+    const processingFee = processing.processingFee;
     const totalAmount = documentPrice + processingFee;
 
     const requestRecord = {
+      ...processing,
+      statusHistory: [{ status: 'Pending for Payment', at: new Date().toISOString() }],
       requestId: makeRequestId(),
       name: `${user.firstName || ''} ${user.lastName || ''}`.trim(),
       studentId: user.studentId || '',
       course: user.course || user.program || '',
       yearLevel: user.yearLevel || '',
-      status: 'Pending',
+      status: 'Pending for Payment',
       documentType: docName,
       purpose: purpose,
       dateRequested: new Date(),
@@ -2627,10 +2815,23 @@ app.get('/requests', requireAuth, async (req, res, next) => {
     }
 
     const statusFilters = parseStatusFilter(req.query?.status);
-    const records = await listRequestsForUser(user, statusFilters);
+    const records = await Promise.all(
+      (await listRequestsForUser(user, statusFilters)).map(ensureLegacyProcessingEstimate),
+    );
+    const requestIds = records.map(getRequestResponseId).filter(Boolean);
+    const linkedReceipts = requestIds.length === 0 ? [] : dbEnabled
+      ? await receipts.find({ requestId: { $in: requestIds },
+        $or: buildMongoOwnerClauses(user) }).toArray()
+      : memoryReceipts.filter((receipt) => requestIds.includes(receipt.requestId) &&
+        recordBelongsToUser(receipt, user));
+    const receiptsByRequestId = new Map(linkedReceipts.map((receipt) => [
+      receipt.requestId, receipt,
+    ]));
     return res.json({
       success: true,
-      requests: records.map(buildRequestResponse).filter(Boolean),
+      requests: records.map((record) => buildRequestResponse(
+        record, receiptsByRequestId.get(getRequestResponseId(record)),
+      )).filter(Boolean),
     });
   } catch (error) {
     return next(error);
@@ -2694,6 +2895,7 @@ app.post('/requests/:requestId/claim', requireAuth, writeLimiter, async (req, re
             claimedAt,
             updatedAt,
           },
+          $push: { statusHistory: { status: 'Claimed', at: claimedAt } },
         },
       );
 
@@ -2751,6 +2953,7 @@ app.post('/requests/:requestId/claim', requireAuth, writeLimiter, async (req, re
     memoryRequests[recordIndex] = {
       ...record,
       status: 'Claimed',
+      statusHistory: [...(record.statusHistory || []), { status: 'Claimed', at: claimedAt }],
       mobileStatus: 'claimed',
       claimedAt,
       updatedAt,
@@ -3059,9 +3262,6 @@ app.post('/refunds', requireAuth, writeLimiter, async (req, res, next) => {
       user,
       transaction,
     );
-    const transactionStatus = resolveWorkflowStatus(transaction, {
-      linkedRecord: linkedRequest,
-    });
     const amount = toNonNegativeNumber(
       transaction.totalAmount ?? transaction.amount ?? transaction.originalAmount,
       0,
@@ -3071,7 +3271,8 @@ app.post('/refunds', requireAuth, writeLimiter, async (req, res, next) => {
       transaction.paymentMode,
     );
 
-    if (!isRejectedWorkflowStatus(transactionStatus)) {
+    if (!isRejectedWorkflowStatus(linkedRequest?.status) ||
+        !['Completed', 'Refunded'].includes(transaction.status)) {
       return res.status(409).json({
         success: false,
         message: 'Only rejected requests can be refunded.',
@@ -3119,6 +3320,8 @@ app.post('/refunds', requireAuth, writeLimiter, async (req, res, next) => {
       requestId: linkedRequestId,
       userId: user._id || user.id,
       email: normalizeEmail(user.email),
+      studentName: `${user.firstName || ''} ${user.lastName || ''}`.trim(),
+      studentEmail: normalizeEmail(user.email),
       docName: transaction.docName || transaction.documentName ||
         transaction.documentType || transaction.title || '',
       amount,
@@ -3127,7 +3330,8 @@ app.post('/refunds', requireAuth, writeLimiter, async (req, res, next) => {
       accountName,
       accountNumber,
       bankName: refundMethod === 'bank_transfer' ? bankName : '',
-      reason: reason || 'Document request was rejected.',
+      reason: 'Service Not Rendered',
+      userReason: reason || 'Document request was rejected.',
       rejectionRemarks,
       status: 'pending',
       createdAt,
@@ -3368,7 +3572,7 @@ app.put(
       const currentPassword = String(req.body?.currentPassword || '');
       const newPassword = String(req.body?.newPassword || '');
 
-      if (!currentPassword || currentPassword.length > 72) {
+      if (!currentPassword || currentPassword.length > 1024) {
         return res.status(400).json({
           success: false,
           message: 'Current password is required.',
@@ -3378,7 +3582,7 @@ app.put(
         return res.status(400).json({
           success: false,
           message:
-            'Password must be 8-72 characters with uppercase, lowercase, number, and special character, without spaces.',
+            'Password must be 8-1024 characters with uppercase, lowercase, number, and special character, without spaces.',
         });
       }
       if (currentPassword === newPassword) {
@@ -3397,7 +3601,7 @@ app.put(
 
       const currentHash = await ensurePasswordHash(user);
       const currentPasswordMatches = currentHash
-        ? await bcrypt.compare(currentPassword, currentHash)
+        ? await verifyPassword(currentPassword, currentHash)
         : false;
       if (!currentPasswordMatches) {
         return res.status(403).json({
@@ -3406,7 +3610,7 @@ app.put(
         });
       }
 
-      const passwordHash = await bcrypt.hash(newPassword, 12);
+      const passwordHash = await hashPassword(newPassword);
       const passwordUpdated = await updateUserPassword(
         user,
         passwordHash,
@@ -3439,6 +3643,16 @@ app.put(
     }
   },
 );
+
+app.post('/auth/email-availability', emailAvailabilityLimiter, async (req, res, next) => {
+  try {
+    const email = normalizeEmail(req.body?.email);
+    res.set('Cache-Control', 'no-store');
+    if (!isValidEmail(email)) return res.status(400).json({ success: false, message: 'Enter a valid email address.' });
+    const existing = await getUserByEmail(email);
+    return res.json({ success: true, available: !existing });
+  } catch (error) { next(error); }
+});
 
 app.post('/auth/register', (_req, res) => {
   return res.status(410).json({
@@ -3482,7 +3696,7 @@ app.post('/auth/register/request-otp', otpRequestLimiter, async (req, res, next)
     }
 
     const { password, ...registrationPayload } = parsed;
-    const passwordHash = await bcrypt.hash(password, 12);
+    const passwordHash = await hashPassword(password);
     const challengeToken = makeChallengeToken();
     const otp = await putOtp(registrationOtpStore, parsed.email, {
       lastSentAt: Date.now(),
@@ -3588,7 +3802,7 @@ app.post('/auth/register/verify-otp', otpVerifyLimiter, async (req, res, next) =
       });
     }
 
-    if (!/^\$2[aby]\$12\$/.test(String(payload.passwordHash || ''))) {
+    if (!isPasswordHash(payload.passwordHash)) {
       return res.status(400).json({
         success: false,
         message: 'Registration challenge is invalid. Please start again.',
@@ -3602,7 +3816,7 @@ app.post('/auth/register/verify-otp', otpVerifyLimiter, async (req, res, next) =
       passwordHash: payload.passwordHash,
       role,
       schoolEmail: normalizeEmail(payload.schoolEmail || ''),
-      studentId: payload.studentId || '',
+      ...(payload.studentId ? { studentId: payload.studentId } : {}),
       studentStatus: role,
       educationalLevel: payload.educationalLevel,
       yearLevel: payload.yearLevel,
@@ -3635,7 +3849,7 @@ app.post(
     const email = normalizeEmail(req.body?.email);
     const password = String(req.body?.password || '');
 
-    if (!isValidEmail(email) || !password || password.length > 72) {
+    if (!isValidEmail(email) || !password || password.length > 1024) {
       return res
         .status(400)
         .json({ success: false, message: 'Invalid email or password format.' });
@@ -3645,7 +3859,7 @@ app.post(
     const passwordHash = user
       ? (await ensurePasswordHash(user)) || dummyPasswordHash
       : dummyPasswordHash;
-    const isMatch = await bcrypt.compare(password, passwordHash);
+    const isMatch = await verifyPassword(password, passwordHash);
     if (!user || !isMatch) {
       return res
         .status(401)
@@ -3781,13 +3995,9 @@ app.post(
     const challengeToken = makeChallengeToken();
     const user = await getUserByEmail(email);
     if (!user) {
-      return res.json({
-        success: true,
-        message:
-          'If an account exists for this email, a verification code has been sent.',
-        challengeToken,
-        expiresInSeconds: otpTtlMinutes * 60,
-        resendAfterSeconds: 30,
+      return res.status(404).json({
+        success: false,
+        message: 'No account found with this email.',
       });
     }
 
@@ -3952,7 +4162,7 @@ app.post('/auth/forgot-password/reset', async (req, res, next) => {
       return res.status(400).json({
         success: false,
         message:
-          'Password must be 8-72 characters with uppercase, lowercase, number, and special character, without spaces.',
+          'Password must be 8-1024 characters with uppercase, lowercase, number, and special character, without spaces.',
       });
     }
 
@@ -3974,7 +4184,7 @@ app.post('/auth/forgot-password/reset', async (req, res, next) => {
         message: 'Reset token is invalid or expired.',
       });
     }
-    const passwordHash = await bcrypt.hash(newPassword, 12);
+    const passwordHash = await hashPassword(newPassword);
     const passwordUpdated = await updateUserPassword(
       user,
       passwordHash,

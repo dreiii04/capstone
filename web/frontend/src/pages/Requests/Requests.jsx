@@ -87,8 +87,15 @@ const Requests = () => {
     // Helper for Status Badge Styling
     const getStatusStyle = (status) => {
         switch (status?.toLowerCase()) {
-            case 'released': return 'bg-[#E1FFEB] text-[#28A745]';
+            case 'released':
+            case 'ready to claim':
+            case 'claimed':
+            case 'refund approved':
+            case 'refunded':
+                return 'bg-[#E1FFEB] text-[#28A745]';
+            case 'pending for payment': return 'bg-[#FEF3C7] text-[#B45309]';
             case 'pending': return 'bg-[#FFF9DB] text-[#D4A017]';
+            case 'needs update': return 'bg-[#FEF3C7] text-[#B45309]';
             case 'rejected': return 'bg-[#FFE1E1] text-[#DC3545]';
             case 'in process': return 'bg-[#DBEAFE] text-[#2563EB]';
             default: return 'bg-gray-100 text-gray-600';
@@ -148,7 +155,7 @@ const Requests = () => {
 
     // Dynamic Dropdown Options
     const documentTypes = ['All Document', ...new Set(requests.map(r => r.documentType))];
-    const statuses = ['All Status', 'Pending', 'In Process', 'Released', 'Rejected'];
+    const statuses = ['All Status', 'Pending for Payment', 'Pending', 'Needs Update', 'In Process', 'Released', 'Rejected'];
 
     return (
         <Layout>
