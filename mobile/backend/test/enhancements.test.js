@@ -30,7 +30,13 @@ test('every catalog role/document pair follows the supplied policy', () => {
   assert.equal(isDocumentAllowedForRole('cert. of enrollment', 'alumni'), false);
   assert.equal(isDocumentAllowedForRole('application for grad', 'former_student'), false);
   assert.equal(isDocumentAllowedForRole('CTC', 'alumni'), true);
-  assert.equal(isDocumentAllowedForRole('Others', ''), false);
+  assert.equal(isDocumentAllowedForRole('TOR', 'student'), false);
+  assert.equal(isDocumentAllowedForRole('TOR', 'former_student'), false);
+  assert.equal(isDocumentAllowedForRole('TOR', 'alumni'), true);
+  for (const role of ['student', 'former_student', 'alumni']) {
+    assert.equal(isDocumentAllowedForRole('Others', role), false);
+    assert.equal(isDocumentAllowedForRole('Custom Archive Certification', role), false);
+  }
 });
 
 test('Express is disabled without a complete policy and ignores client prices', () => {

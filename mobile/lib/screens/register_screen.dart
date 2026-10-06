@@ -1,7 +1,10 @@
+import '../widgets/form_ui.dart';
+import '../models/password_rules.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../models/student_academic_options.dart';
 import '../services/mongo_data_api_service.dart';
 import '../widgets/confirmation_dialog.dart';
 import '../widgets/simple_message_dialog.dart';
@@ -55,8 +58,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _confirmPasswordController = TextEditingController();
   final _postgraduateProgramController = TextEditingController();
 
-  final _emailRegex =
-      RegExp(r'^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$');
+  final _emailRegex = RegExp(r'^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$');
   final _nameRegex = RegExp(
     r"^[A-Za-zÀ-ÖØ-öø-ÿĀ-žÑñ][A-Za-zÀ-ÖØ-öø-ÿĀ-žÑñ .’'\-]*$",
   );
@@ -71,31 +73,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
     'Bachelor of Science in Computer Science (BSCS)',
   ];
 
-  static const _defaultProgramOptions = [
-    'BSIT',
-    'BSCS',
-    'BSIS',
-    'BSECE',
-    'BSCE',
-    'BSA',
-    'BSBA',
-    'BSHM',
-    'BSTM',
-    'BEED',
-    'BSED',
-  ];
+  static const _defaultProgramOptions = collegeProgramOptions;
+  static const _shsStrandOptions = seniorHighStrandOptions;
 
-  static const _shsStrandOptions = [
-    'Accounting, Business and Management (ABM)',
-    'Science, Technology, Engineering, and Mathematics (STEM)',
-    'Humanities and Social Sciences (HUMSS)',
-    'General Academic Strand (GAS)',
-    'Information-Communication Technology (ICT)',
-    'Technological And Livelihood Education (TLE)',
-  ];
-
-  List<String> get _programOptions =>
-      _isAlumni ? _alumniProgramOptions : _defaultProgramOptions;
+  List<String> get _programOptions => _isAlumni ? _alumniProgramOptions : _defaultProgramOptions;
   late final List<String> _graduationYears;
   String? _studentStatus;
   String? _studentGradeLevel;
@@ -112,26 +93,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   bool get _isStudent => _studentStatus == 'student';
   bool get _isStudentShs =>
-      _isStudent &&
-      (_studentGradeLevel == 'Grade 11' || _studentGradeLevel == 'Grade 12');
-  bool get _isStudentCollege =>
-      _isStudent && (_studentGradeLevel?.endsWith(' Year') ?? false);
+      _isStudent && (_studentGradeLevel == 'Grade 11' || _studentGradeLevel == 'Grade 12');
+  bool get _isStudentCollege => _isStudent && (_studentGradeLevel?.endsWith(' Year') ?? false);
   bool get _isAlumni => _studentStatus == 'alumni';
   bool get _isFormerStudent => _studentStatus == 'former_student';
   bool get _isShs => _educationalLevel == 'shs';
-  bool get _isBasicEducation =>
-      _educationalLevel == 'jhs' || _educationalLevel == 'shs';
-  bool get _isPostgraduate =>
-      _educationalLevel == 'masters' || _educationalLevel == 'doctorate';
-  bool get _requiresProgram =>
-      _educationalLevel == 'bachelors' || _isPostgraduate;
+  bool get _isBasicEducation => _educationalLevel == 'jhs' || _educationalLevel == 'shs';
+  bool get _isPostgraduate => _educationalLevel == 'masters' || _educationalLevel == 'doctorate';
+  bool get _requiresProgram => _educationalLevel == 'bachelors' || _isPostgraduate;
   String get _resolvedProgram {
     if (_isStudent) return _program ?? '';
     if (_isShs) return _program ?? '';
     if (!_requiresProgram) return '';
-    return _isPostgraduate
-        ? _postgraduateProgramController.text.trim()
-        : _program ?? '';
+    return _isPostgraduate ? _postgraduateProgramController.text.trim() : _program ?? '';
   }
 
   late final ValueNotifier<String> _passwordStrengthNotifier;
@@ -144,8 +118,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       currentYear - 1950 + 1,
       (index) => (currentYear - index).toString(),
     );
-    _passwordStrengthNotifier =
-        ValueNotifier<String>(_passwordStrength(_passwordController.text));
+    _passwordStrengthNotifier = ValueNotifier<String>(_passwordStrength(_passwordController.text));
     _passwordController.addListener(_updatePasswordStrength);
   }
 
@@ -164,8 +137,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   void _updatePasswordStrength() {
-    _passwordStrengthNotifier.value =
-        _passwordStrength(_passwordController.text);
+    _passwordStrengthNotifier.value = _passwordStrength(_passwordController.text);
   }
 
   String? _validateName(String? value, String fieldName) {
@@ -186,27 +158,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return null;
   }
 
-  bool _hasMinimumLength(String value) =>
-      value.length >= 8 && value.length <= 1024;
-  bool _hasUpperAndLower(String value) =>
-      RegExp(r'[A-Z]').hasMatch(value) && RegExp(r'[a-z]').hasMatch(value);
-  bool _hasNumber(String value) => RegExp(r'[0-9]').hasMatch(value);
-  bool _hasSpecialCharacter(String value) =>
-      RegExp(r'[!@#\$%^&*(),.?":{}|<>]').hasMatch(value);
-  bool _hasNoSpaces(String value) => !RegExp(r'\s').hasMatch(value);
-
-  bool _isStrongPassword(String value) {
-    return _hasMinimumLength(value) &&
-        _hasUpperAndLower(value) &&
-        _hasNumber(value) &&
-        _hasSpecialCharacter(value) &&
-        _hasNoSpaces(value);
-  }
-
   String? _validatePassword(String? value) {
     final password = value ?? '';
     if (password.isEmpty) return 'Enter a password';
-    if (!_isStrongPassword(password)) {
+    if (!PasswordRules.isStrong(password)) {
       return 'Use 8-1024 chars with upper/lowercase, number, symbol, and no spaces';
     }
     return null;
@@ -275,18 +230,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
         studentId: _isStudent ? _studentIdController.text.trim() : null,
         schoolEmail: _isStudent ? email : null,
         yearLevel: _isStudent ? _studentGradeLevel : null,
-        program:
-            (_isStudentShs || _isStudentCollege || _requiresProgram || _isShs)
-                ? _resolvedProgram
-                : null,
+        program: (_isStudentShs || _isStudentCollege || _requiresProgram || _isShs)
+            ? _resolvedProgram
+            : null,
         yearGraduated: _isAlumni ? _yearGraduated : null,
         lastYearAttended: _isFormerStudent ? _lastYearAttended : null,
-        lastGradeLevelCompleted: _isFormerStudent && _isBasicEducation
-            ? _lastGradeLevelCompleted
-            : null,
-        lastYearLevelCompleted: _isFormerStudent && !_isBasicEducation
-            ? _lastYearLevelCompleted
-            : null,
+        lastGradeLevelCompleted:
+            _isFormerStudent && _isBasicEducation ? _lastGradeLevelCompleted : null,
+        lastYearLevelCompleted:
+            _isFormerStudent && !_isBasicEducation ? _lastYearLevelCompleted : null,
       );
     }
     return MongoDataApiService.instance.requestRegisterOtp(
@@ -305,18 +257,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
       studentId: _isStudent ? _studentIdController.text.trim() : null,
       schoolEmail: _isStudent ? email : null,
       yearLevel: _isStudent ? _studentGradeLevel : null,
-      program:
-          (_isStudentShs || _isStudentCollege || _requiresProgram || _isShs)
-              ? _resolvedProgram
-              : null,
+      program: (_isStudentShs || _isStudentCollege || _requiresProgram || _isShs)
+          ? _resolvedProgram
+          : null,
       yearGraduated: _isAlumni ? _yearGraduated : null,
       lastYearAttended: _isFormerStudent ? _lastYearAttended : null,
-      lastGradeLevelCompleted: _isFormerStudent && _isBasicEducation
-          ? _lastGradeLevelCompleted
-          : null,
-      lastYearLevelCompleted: _isFormerStudent && !_isBasicEducation
-          ? _lastYearLevelCompleted
-          : null,
+      lastGradeLevelCompleted:
+          _isFormerStudent && _isBasicEducation ? _lastGradeLevelCompleted : null,
+      lastYearLevelCompleted:
+          _isFormerStudent && !_isBasicEducation ? _lastYearLevelCompleted : null,
     );
   }
 
@@ -377,8 +326,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return await showConfirmationDialog(
       context,
       title: 'Leave Registration?',
-      message:
-          'Are you sure you want to go back? Any entered registration details will be lost.',
+      message: 'Are you sure you want to go back? Any entered registration details will be lost.',
       confirmLabel: 'Leave',
       cancelLabel: 'Stay',
       isDestructive: true,
@@ -394,292 +342,270 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    return PopScope(
-      canPop: !_hasEnteredData && !_isSubmitting,
-      onPopInvokedWithResult: (didPop, _) async {
-        if (didPop) return;
-        final shouldPop = await _confirmLeave();
-        if (shouldPop && context.mounted) {
-          Navigator.of(context).pop();
-        }
-      },
-      child: Scaffold(
-        backgroundColor: Colors.white,
-        body: Column(
-          children: [
-            Expanded(
-              flex: 2,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  Center(
-                    child: Padding(
-                      padding: const EdgeInsets.only(top: 40),
-                      child: Image.asset(
-                        'assets/logo/logo.png',
-                        height: 50,
-                        errorBuilder: (_, __, ___) => const Icon(
-                          Icons.image_outlined,
-                          color: _primaryBlue,
-                          size: 42,
+  Widget build(BuildContext context) => PopScope(
+        canPop: !_hasEnteredData && !_isSubmitting,
+        onPopInvokedWithResult: (didPop, _) async {
+          if (didPop) return;
+          final shouldPop = await _confirmLeave();
+          if (shouldPop && context.mounted) {
+            Navigator.of(context).pop();
+          }
+        },
+        child: Scaffold(
+          backgroundColor: Colors.white,
+          body: Column(
+            children: [
+              Expanded(
+                flex: 2,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Center(
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 40),
+                        child: Image.asset(
+                          'assets/logo/logo.png',
+                          height: 50,
+                          errorBuilder: (_, __, ___) => const Icon(
+                            Icons.image_outlined,
+                            color: _primaryBlue,
+                            size: 42,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  SafeArea(
-                    bottom: false,
-                    child: Align(
-                      alignment: Alignment.topLeft,
-                      child: IconButton(
-                        key: const Key('registration_back_button'),
-                        tooltip: 'Back to login',
-                        onPressed: _handleBack,
-                        icon: const Icon(Icons.arrow_back_rounded),
-                        color: _darkNavy,
+                    SafeArea(
+                      bottom: false,
+                      child: Align(
+                        alignment: Alignment.topLeft,
+                        child: IconButton(
+                          key: const Key('registration_back_button'),
+                          tooltip: 'Back to login',
+                          onPressed: _handleBack,
+                          icon: const Icon(Icons.arrow_back_rounded),
+                          color: _darkNavy,
+                        ),
                       ),
                     ),
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              flex: 6,
-              child: Container(
-                width: double.infinity,
-                decoration: const BoxDecoration(
-                  color: _primaryBlue,
-                  borderRadius: BorderRadius.only(
-                    topLeft: Radius.circular(30),
-                    topRight: Radius.circular(30),
-                  ),
+                  ],
                 ),
-                child: Form(
-                  key: _formKey,
-                  autovalidateMode: AutovalidateMode.disabled,
-                  child: AutofillGroup(
-                    child: SingleChildScrollView(
-                      keyboardDismissBehavior:
-                          ScrollViewKeyboardDismissBehavior.onDrag,
-                      padding: EdgeInsets.symmetric(
-                        horizontal:
-                            MediaQuery.sizeOf(context).shortestSide >= 600
-                                ? 36.0
-                                : 25.0,
-                        vertical: 30,
-                      ),
-                      child: Center(
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 560),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              const Text(
-                                'Create an Account',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.bold,
+              ),
+              Expanded(
+                flex: 6,
+                child: Container(
+                  width: double.infinity,
+                  decoration: const BoxDecoration(
+                    color: _primaryBlue,
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+                  ),
+                  child: Form(
+                    key: _formKey,
+                    autovalidateMode: AutovalidateMode.disabled,
+                    child: AutofillGroup(
+                      child: SingleChildScrollView(
+                        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                        padding: EdgeInsets.symmetric(
+                          horizontal: MediaQuery.sizeOf(context).shortestSide >= 600 ? 36.0 : 25.0,
+                          vertical: 30,
+                        ),
+                        child: Center(
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 560),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                const Text(
+                                  'Create an Account',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(height: 25),
-                              _buildStudentStatusField(),
-                              const SizedBox(height: 15),
-                              if (_isStudent) ...[
+                                const SizedBox(height: 25),
+                                _buildStudentStatusField(),
+                                const SizedBox(height: 15),
+                                if (_isStudent) ...[
+                                  _textField(
+                                    key: const Key('student_id_field'),
+                                    controller: _studentIdController,
+                                    hint: 'Student ID',
+                                    validator: (value) {
+                                      final id = value?.trim() ?? '';
+                                      if (id.isEmpty) {
+                                        return 'Enter your student ID';
+                                      }
+                                      if (!RegExp(r'^[A-Za-z0-9][A-Za-z0-9-]{3,29}$')
+                                          .hasMatch(id)) {
+                                        return 'Use 4-30 letters, numbers, or hyphens';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                  const SizedBox(height: 15),
+                                  _buildStudentGradeLevelField(),
+                                  const SizedBox(height: 15),
+                                  if (_isStudentShs || _isStudentCollege) ...[
+                                    _buildStudentProgramField(),
+                                    const SizedBox(height: 15),
+                                  ],
+                                ],
                                 _textField(
-                                  key: const Key('student_id_field'),
-                                  controller: _studentIdController,
-                                  hint: 'Student ID',
-                                  validator: (value) {
-                                    final id = value?.trim() ?? '';
-                                    if (id.isEmpty) {
-                                      return 'Enter your student ID';
-                                    }
-                                    if (!RegExp(
-                                            r'^[A-Za-z0-9][A-Za-z0-9-]{3,29}$')
-                                        .hasMatch(id)) {
-                                      return 'Use 4-30 letters, numbers, or hyphens';
-                                    }
-                                    return null;
+                                  key: const Key('first_name_field'),
+                                  controller: _firstNameController,
+                                  hint: 'First Name',
+                                  validator: (value) => _validateName(value, 'first name'),
+                                  textCapitalization: TextCapitalization.words,
+                                  autofillHints: const [
+                                    AutofillHints.givenName,
+                                  ],
+                                ),
+                                const SizedBox(height: 15),
+                                _textField(
+                                  key: const Key('last_name_field'),
+                                  controller: _lastNameController,
+                                  hint: 'Last Name',
+                                  validator: (value) => _validateName(value, 'last name'),
+                                  textCapitalization: TextCapitalization.words,
+                                  autofillHints: const [
+                                    AutofillHints.familyName,
+                                  ],
+                                ),
+                                const SizedBox(height: 15),
+                                _textField(
+                                  key: const Key('registration_email_field'),
+                                  controller: _emailController,
+                                  hint: _isStudent ? 'School Email' : 'Email',
+                                  keyboardType: TextInputType.emailAddress,
+                                  validator: _validateEmail,
+                                  autofillHints: const [AutofillHints.email],
+                                ),
+                                AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 180),
+                                  child: _buildAcademicFields(),
+                                ),
+                                const SizedBox(height: 15),
+                                _textField(
+                                  key: const Key(
+                                    'registration_password_field',
+                                  ),
+                                  controller: _passwordController,
+                                  hint: 'Password',
+                                  obscureText: _isPasswordObscure,
+                                  validator: _validatePassword,
+                                  autofillHints: const [
+                                    AutofillHints.newPassword,
+                                  ],
+                                  suffixIcon: _visibilityButton(
+                                    obscure: _isPasswordObscure,
+                                    onPressed: () => setState(
+                                      () => _isPasswordObscure = !_isPasswordObscure,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                const Text(
+                                  'Password required. Minimum 8 characters (maximum 1024), with uppercase and lowercase letters, '
+                                  'a number, and a symbol (e.g. ! or @). No spaces.',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                    height: 1.4,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                ValueListenableBuilder<String>(
+                                  valueListenable: _passwordStrengthNotifier,
+                                  builder: (context, strength, _) {
+                                    return Text(
+                                      'Password strength: $strength',
+                                      style: const TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 12,
+                                      ),
+                                    );
                                   },
                                 ),
                                 const SizedBox(height: 15),
-                                _buildStudentGradeLevelField(),
-                                const SizedBox(height: 15),
-                                if (_isStudentShs || _isStudentCollege) ...[
-                                  _buildStudentProgramField(),
-                                  const SizedBox(height: 15),
-                                ],
-                              ],
-                              _textField(
-                                key: const Key('first_name_field'),
-                                controller: _firstNameController,
-                                hint: 'First Name',
-                                validator: (value) =>
-                                    _validateName(value, 'first name'),
-                                textCapitalization: TextCapitalization.words,
-                                autofillHints: const [
-                                  AutofillHints.givenName,
-                                ],
-                              ),
-                              const SizedBox(height: 15),
-                              _textField(
-                                key: const Key('last_name_field'),
-                                controller: _lastNameController,
-                                hint: 'Last Name',
-                                validator: (value) =>
-                                    _validateName(value, 'last name'),
-                                textCapitalization: TextCapitalization.words,
-                                autofillHints: const [
-                                  AutofillHints.familyName,
-                                ],
-                              ),
-                              const SizedBox(height: 15),
-                              _textField(
-                                key: const Key('registration_email_field'),
-                                controller: _emailController,
-                                hint: _isStudent ? 'School Email' : 'Email',
-                                keyboardType: TextInputType.emailAddress,
-                                validator: _validateEmail,
-                                autofillHints: const [AutofillHints.email],
-                              ),
-                              AnimatedSwitcher(
-                                duration: const Duration(milliseconds: 180),
-                                child: _buildAcademicFields(),
-                              ),
-                              const SizedBox(height: 15),
-                              _textField(
-                                key: const Key(
-                                  'registration_password_field',
-                                ),
-                                controller: _passwordController,
-                                hint: 'Password',
-                                obscureText: _isPasswordObscure,
-                                validator: _validatePassword,
-                                autofillHints: const [
-                                  AutofillHints.newPassword,
-                                ],
-                                suffixIcon: _visibilityButton(
-                                  obscure: _isPasswordObscure,
-                                  onPressed: () => setState(
-                                    () => _isPasswordObscure =
-                                        !_isPasswordObscure,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              const Text(
-                                'Use 8–1024 characters with uppercase and lowercase letters, '
-                                'a number, and a symbol (e.g. ! or @). No spaces.',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 12,
-                                  height: 1.4,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              ValueListenableBuilder<String>(
-                                valueListenable: _passwordStrengthNotifier,
-                                builder: (context, strength, _) {
-                                  return Text(
-                                    'Password strength: $strength',
-                                    style: const TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 12,
-                                    ),
-                                  );
-                                },
-                              ),
-                              const SizedBox(height: 15),
-                              _textField(
-                                key: const Key('confirm_password_field'),
-                                controller: _confirmPasswordController,
-                                hint: 'Confirm Password',
-                                obscureText: _isConfirmPasswordObscure,
-                                validator: _validatePasswordConfirmation,
-                                autofillHints: const [
-                                  AutofillHints.newPassword,
-                                ],
-                                textInputAction: TextInputAction.done,
-                                suffixIcon: _visibilityButton(
-                                  obscure: _isConfirmPasswordObscure,
-                                  onPressed: () => setState(
-                                    () => _isConfirmPasswordObscure =
-                                        !_isConfirmPasswordObscure,
-                                  ),
-                                ),
-                                onFieldSubmitted: (_) => _handleRegister(),
-                              ),
-                              const SizedBox(height: 8),
-                              _buildTermsField(),
-                              const SizedBox(height: 25),
-                              SizedBox(
-                                height: 55,
-                                child: ElevatedButton(
-                                  key: const Key('create_account_button'),
-                                  onPressed:
-                                      _isSubmitting ? null : _handleRegister,
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: _darkNavy,
-                                    foregroundColor: Colors.white,
-                                    disabledBackgroundColor:
-                                        const Color(0xFF9EABB3),
-                                    elevation: 0,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
+                                _textField(
+                                  key: const Key('confirm_password_field'),
+                                  controller: _confirmPasswordController,
+                                  hint: 'Confirm Password',
+                                  obscureText: _isConfirmPasswordObscure,
+                                  validator: _validatePasswordConfirmation,
+                                  autofillHints: const [
+                                    AutofillHints.newPassword,
+                                  ],
+                                  textInputAction: TextInputAction.done,
+                                  suffixIcon: _visibilityButton(
+                                    obscure: _isConfirmPasswordObscure,
+                                    onPressed: () => setState(
+                                      () => _isConfirmPasswordObscure = !_isConfirmPasswordObscure,
                                     ),
                                   ),
-                                  child: _isSubmitting
-                                      ? const SizedBox(
-                                          width: 22,
-                                          height: 22,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                            color: Colors.white,
+                                  onFieldSubmitted: (_) => _handleRegister(),
+                                ),
+                                const SizedBox(height: 8),
+                                _buildTermsField(),
+                                const SizedBox(height: 25),
+                                SizedBox(
+                                  height: 55,
+                                  child: ElevatedButton(
+                                    key: const Key('create_account_button'),
+                                    onPressed: _isSubmitting ? null : _handleRegister,
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: _darkNavy,
+                                      foregroundColor: Colors.white,
+                                      disabledBackgroundColor: const Color(0xFF9EABB3),
+                                      elevation: 0,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                    ),
+                                    child: _isSubmitting
+                                        ? const ButtonProgressIndicator(size: 22)
+                                        : const Text(
+                                            'Register',
+                                            style: TextStyle(
+                                              fontSize: 24,
+                                              fontWeight: FontWeight.bold,
+                                            ),
                                           ),
-                                        )
-                                      : const Text(
-                                          'Register',
-                                          style: TextStyle(
-                                            fontSize: 24,
-                                            fontWeight: FontWeight.bold,
-                                          ),
+                                  ),
+                                ),
+                                const SizedBox(height: 20),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const Flexible(
+                                      child: Text(
+                                        'Already have an account? ',
+                                        style: TextStyle(
+                                          color: Colors.white70,
+                                          fontSize: 13,
                                         ),
+                                      ),
+                                    ),
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(context),
+                                      style: TextButton.styleFrom(
+                                        padding: EdgeInsets.zero,
+                                        minimumSize: Size.zero,
+                                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                      ),
+                                      child: const Text(
+                                        'Login',
+                                        style: TextStyle(
+                                          color: Color(0xFFF2F2F2),
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                              ),
-                              const SizedBox(height: 20),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  const Flexible(
-                                    child: Text(
-                                      'Already have an account? ',
-                                      style: TextStyle(
-                                        color: Colors.white70,
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                  ),
-                                  TextButton(
-                                    onPressed: () => Navigator.pop(context),
-                                    style: TextButton.styleFrom(
-                                      padding: EdgeInsets.zero,
-                                      minimumSize: Size.zero,
-                                      tapTargetSize:
-                                          MaterialTapTargetSize.shrinkWrap,
-                                    ),
-                                    child: const Text(
-                                      'Login',
-                                      style: TextStyle(
-                                        color: Color(0xFFF2F2F2),
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 20),
-                            ],
+                                const SizedBox(height: 20),
+                              ],
+                            ),
                           ),
                         ),
                       ),
@@ -687,70 +613,55 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
-    );
-  }
+      );
 
-  Widget _buildStudentStatusField() {
-    return DropdownButtonFormField<String>(
-      key: const Key('student_status_field'),
-      initialValue: _studentStatus,
-      isExpanded: true,
-      decoration: _inputDecoration(hint: 'Student Status'),
-      items: const [
-        DropdownMenuItem(
-          key: Key('student_status_student'),
-          value: 'student',
-          child: Text('Student'),
-        ),
-        DropdownMenuItem(
-          key: Key('student_status_former_student'),
-          value: 'former_student',
-          child: Text('Former Student'),
-        ),
-        DropdownMenuItem(
-          key: Key('student_status_alumni'),
-          value: 'alumni',
-          child: Text('Alumni'),
-        ),
-      ],
-      onChanged: (value) {
-        setState(() {
-          _studentStatus = value;
-          _studentGradeLevel = null;
-          _clearAcademicValues(clearEducationalLevel: true);
-        });
-      },
-      validator: (value) =>
-          value == null ? 'Select your student status to continue' : null,
-    );
-  }
+  Widget _buildStudentStatusField() => DropdownButtonFormField<String>(
+        key: const Key('student_status_field'),
+        initialValue: _studentStatus,
+        isExpanded: true,
+        decoration: _inputDecoration(hint: 'Student Status'),
+        items: const [
+          DropdownMenuItem(
+            key: Key('student_status_student'),
+            value: 'student',
+            child: Text('Student'),
+          ),
+          DropdownMenuItem(
+            key: Key('student_status_former_student'),
+            value: 'former_student',
+            child: Text('Former Student'),
+          ),
+          DropdownMenuItem(
+            key: Key('student_status_alumni'),
+            value: 'alumni',
+            child: Text('Alumni'),
+          ),
+        ],
+        onChanged: (value) {
+          setState(() {
+            _studentStatus = value;
+            _studentGradeLevel = null;
+            _clearAcademicValues(clearEducationalLevel: true);
+          });
+        },
+        validator: (value) => value == null ? 'Select your student status to continue' : null,
+      );
 
   Widget _buildStudentGradeLevelField() {
     const levels = [
-      'Grade 7',
-      'Grade 8',
-      'Grade 9',
-      'Grade 10',
-      'Grade 11',
-      'Grade 12',
-      '1st Year',
-      '2nd Year',
-      '3rd Year',
-      '4th Year',
-      '5th Year',
+      ...juniorHighGradeLevels,
+      ...seniorHighGradeLevels,
+      ...collegeYearLevels,
     ];
     return DropdownButtonFormField<String>(
       key: const Key('student_grade_level_field'),
       initialValue: _studentGradeLevel,
       isExpanded: true,
       decoration: _inputDecoration(hint: 'Grade Level'),
-      items: levels
-          .map((level) => DropdownMenuItem(value: level, child: Text(level)))
-          .toList(),
+      items: levels.map((level) => DropdownMenuItem(value: level, child: Text(level))).toList(),
       onChanged: (value) => setState(() {
         _studentGradeLevel = value;
         _program = null;
@@ -829,9 +740,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               validationMessage: 'Select your last year attended',
             ),
             const SizedBox(height: 15),
-            _isBasicEducation
-                ? _buildLastGradeLevelField()
-                : _buildLastYearLevelField(),
+            _isBasicEducation ? _buildLastGradeLevelField() : _buildLastYearLevelField(),
           ],
         ],
       ],
@@ -874,24 +783,23 @@ class _RegisterScreenState extends State<RegisterScreen> {
     required String? value,
     required ValueChanged<String?> onChanged,
     required String validationMessage,
-  }) {
-    return DropdownButtonFormField<String>(
-      key: key,
-      initialValue: value,
-      isExpanded: true,
-      decoration: _inputDecoration(hint: hint),
-      items: _graduationYears
-          .map(
-            (year) => DropdownMenuItem(
-              value: year,
-              child: Text(year, overflow: TextOverflow.ellipsis),
-            ),
-          )
-          .toList(),
-      onChanged: onChanged,
-      validator: (selected) => selected == null ? validationMessage : null,
-    );
-  }
+  }) =>
+      DropdownButtonFormField<String>(
+        key: key,
+        initialValue: value,
+        isExpanded: true,
+        decoration: _inputDecoration(hint: hint),
+        items: _graduationYears
+            .map(
+              (year) => DropdownMenuItem(
+                value: year,
+                child: Text(year, overflow: TextOverflow.ellipsis),
+              ),
+            )
+            .toList(),
+        onChanged: onChanged,
+        validator: (selected) => selected == null ? validationMessage : null,
+      );
 
   Widget _buildLastGradeLevelField() {
     final options = _educationalLevel == 'jhs'
@@ -908,8 +816,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           )
           .toList(),
       onChanged: (value) => setState(() => _lastGradeLevelCompleted = value),
-      validator: (value) =>
-          value == null ? 'Select your last completed grade level' : null,
+      validator: (value) => value == null ? 'Select your last completed grade level' : null,
     );
   }
 
@@ -935,8 +842,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           )
           .toList(),
       onChanged: (value) => setState(() => _lastYearLevelCompleted = value),
-      validator: (value) =>
-          value == null ? 'Select your last completed year level' : null,
+      validator: (value) => value == null ? 'Select your last completed year level' : null,
     );
   }
 
@@ -1063,53 +969,50 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
-  Widget _buildTermsField() {
-    return FormField<bool>(
-      initialValue: _acceptedTerms,
-      validator: (value) => value == true
-          ? null
-          : 'Confirm that all details provided are correct to continue',
-      builder: (field) {
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Checkbox(
-                  key: const Key('registration_terms_checkbox'),
-                  value: _acceptedTerms,
-                  side: const BorderSide(color: Colors.white70),
-                  checkColor: _darkNavy,
-                  fillColor: WidgetStateProperty.all(Colors.white),
-                  onChanged: (value) {
-                    setState(() => _acceptedTerms = value ?? false);
-                    field.didChange(value ?? false);
-                  },
-                ),
-                const Expanded(
-                  child: Text(
-                    'I confirm that all details provided are correct.',
-                    style: TextStyle(color: Colors.white70, fontSize: 12),
+  Widget _buildTermsField() => FormField<bool>(
+        initialValue: _acceptedTerms,
+        validator: (value) =>
+            value == true ? null : 'Confirm that all details provided are correct to continue',
+        builder: (field) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Checkbox(
+                    key: const Key('registration_terms_checkbox'),
+                    value: _acceptedTerms,
+                    side: const BorderSide(color: Colors.white70),
+                    checkColor: _darkNavy,
+                    fillColor: WidgetStateProperty.all(Colors.white),
+                    onChanged: (value) {
+                      setState(() => _acceptedTerms = value ?? false);
+                      field.didChange(value ?? false);
+                    },
                   ),
-                ),
-              ],
-            ),
-            if (field.hasError)
-              Padding(
-                padding: const EdgeInsets.only(left: 12),
-                child: Text(
-                  field.errorText!,
-                  style: const TextStyle(
-                    color: Color(0xFFFFDAD6),
-                    fontSize: 12,
+                  const Expanded(
+                    child: Text(
+                      'I confirm that all details provided are correct.',
+                      style: TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
                   ),
-                ),
+                ],
               ),
-          ],
-        );
-      },
-    );
-  }
+              if (field.hasError)
+                Padding(
+                  padding: const EdgeInsets.only(left: 12),
+                  child: Text(
+                    field.errorText!,
+                    style: const TextStyle(
+                      color: Color(0xFFFFDAD6),
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+            ],
+          );
+        },
+      );
 
   Widget _textField({
     required Key key,
@@ -1124,25 +1027,24 @@ class _RegisterScreenState extends State<RegisterScreen> {
     Widget? suffixIcon,
     ValueChanged<String>? onFieldSubmitted,
     ValueChanged<String>? onChanged,
-  }) {
-    return TextFormField(
-      key: key,
-      controller: controller,
-      validator: validator,
-      keyboardType: keyboardType,
-      textCapitalization: textCapitalization,
-      textInputAction: textInputAction,
-      autofillHints: autofillHints,
-      obscureText: obscureText,
-      onFieldSubmitted: onFieldSubmitted,
-      onChanged: onChanged,
-      style: const TextStyle(color: _darkNavy, fontSize: 15),
-      decoration: _inputDecoration(
-        hint: hint,
-        suffixIcon: suffixIcon,
-      ),
-    );
-  }
+  }) =>
+      TextFormField(
+        key: key,
+        controller: controller,
+        validator: validator,
+        keyboardType: keyboardType,
+        textCapitalization: textCapitalization,
+        textInputAction: textInputAction,
+        autofillHints: autofillHints,
+        obscureText: obscureText,
+        onFieldSubmitted: onFieldSubmitted,
+        onChanged: onChanged,
+        style: const TextStyle(color: _darkNavy, fontSize: 15),
+        decoration: _inputDecoration(
+          hint: hint,
+          suffixIcon: suffixIcon,
+        ),
+      );
 
   InputDecoration _inputDecoration({
     required String hint,
@@ -1155,51 +1057,36 @@ class _RegisterScreenState extends State<RegisterScreen> {
       fillColor: Colors.white,
       hintStyle: const TextStyle(color: _darkNavy, fontSize: 14),
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(10),
-        borderSide: const BorderSide(color: Color(0xFFD8E0E5)),
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(10),
-        borderSide: const BorderSide(color: Color(0xFFD8E0E5)),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(10),
-        borderSide: const BorderSide(color: Colors.blue, width: 1.5),
-      ),
-      errorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(10),
-        borderSide: const BorderSide(color: Color(0xFFB3261E)),
-      ),
-      focusedErrorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(10),
-        borderSide: const BorderSide(color: Color(0xFFB3261E), width: 1.5),
-      ),
+      border: roundedInputBorder(10, side: const BorderSide(color: Color(0xFFD8E0E5))),
+      enabledBorder: roundedInputBorder(10, side: const BorderSide(color: Color(0xFFD8E0E5))),
+      focusedBorder: roundedInputBorder(10, side: const BorderSide(color: Colors.blue, width: 1.5)),
+      errorBorder: roundedInputBorder(10, side: const BorderSide(color: Color(0xFFB3261E))),
+      focusedErrorBorder:
+          roundedInputBorder(10, side: const BorderSide(color: Color(0xFFB3261E), width: 1.5)),
     );
   }
 
   Widget _visibilityButton({
     required bool obscure,
     required VoidCallback onPressed,
-  }) {
-    return IconButton(
-      tooltip: obscure ? 'Show password' : 'Hide password',
-      onPressed: onPressed,
-      icon: Icon(
-        obscure ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-      ),
-    );
-  }
+  }) =>
+      IconButton(
+        tooltip: obscure ? 'Show password' : 'Hide password',
+        onPressed: onPressed,
+        icon: Icon(
+          obscure ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+        ),
+      );
 
   String _passwordStrength(String password) {
     if (password.isEmpty) return 'Enter password';
-    if (!_hasMinimumLength(password)) return 'Weak';
+    if (!PasswordRules.validLength(password)) return 'Weak';
 
     var score = 0;
-    if (_hasUpperAndLower(password)) score += 2;
-    if (_hasNumber(password)) score++;
-    if (_hasSpecialCharacter(password)) score++;
-    if (!_hasNoSpaces(password)) return 'Weak';
+    if (PasswordRules.hasLetterCases(password)) score += 2;
+    if (PasswordRules.hasNumber(password)) score++;
+    if (PasswordRules.hasSpecial(password)) score++;
+    if (!PasswordRules.hasNoSpaces(password)) return 'Weak';
     if (score <= 2) return 'Weak';
     if (score == 3) return 'Medium';
     return 'Strong';
@@ -1316,8 +1203,7 @@ class _RegistrationOtpDialogState extends State<_RegistrationOtpDialog> {
       }
     } catch (e) {
       if (mounted) {
-        setState(() =>
-            _verificationError = e.toString().replaceFirst('Exception: ', ''));
+        setState(() => _verificationError = e.toString().replaceFirst('Exception: ', ''));
       }
     } finally {
       if (mounted) setState(() => _isResending = false);
@@ -1325,202 +1211,194 @@ class _RegistrationOtpDialogState extends State<_RegistrationOtpDialog> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Dialog.fullscreen(
-      child: Scaffold(
-        backgroundColor: Colors.white,
-        body: SafeArea(
-          child: GestureDetector(
-            // tapping anywhere refocuses the hidden input
-            onTap: () => _hiddenFocus.requestFocus(),
-            behavior: HitTestBehavior.translucent,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 28),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const SizedBox(height: 16),
-                  // Back / close
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: IconButton(
-                      icon: const Icon(Icons.arrow_back_rounded),
-                      onPressed: _isVerifying
-                          ? null
-                          : () => Navigator.of(context).pop(false),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  // Title
-                  RichText(
-                    textAlign: TextAlign.center,
-                    text: const TextSpan(
-                      style: TextStyle(
-                        fontSize: 26,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF1A1A2E),
+  Widget build(BuildContext context) => Dialog.fullscreen(
+        child: Scaffold(
+          backgroundColor: Colors.white,
+          body: SafeArea(
+            child: GestureDetector(
+              // tapping anywhere refocuses the hidden input
+              onTap: () => _hiddenFocus.requestFocus(),
+              behavior: HitTestBehavior.translucent,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 28),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const SizedBox(height: 16),
+                    // Back / close
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: IconButton(
+                        icon: const Icon(Icons.arrow_back_rounded),
+                        onPressed: _isVerifying ? null : () => Navigator.of(context).pop(false),
                       ),
-                      children: [
-                        TextSpan(text: 'Verify '),
-                        TextSpan(
-                          text: 'your email',
-                          style: TextStyle(fontStyle: FontStyle.italic),
-                        ),
-                      ],
                     ),
-                  ),
-                  const SizedBox(height: 14),
-                  // Subtitle
-                  Text(
-                    "Enter code we've sent to your inbox\n${widget.email}",
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: Color(0xFF6B7280),
-                      height: 1.5,
-                    ),
-                  ),
-                  const SizedBox(height: 36),
-                  // 6 PIN boxes with transparent text field overlay
-                  SizedBox(
-                    height: 56,
-                    child: Stack(
-                      children: [
-                        // Visual PIN boxes
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: List.generate(_pinCount, (i) {
-                            final isFocused = _hiddenFocus.hasFocus &&
-                                _digits[i].isEmpty &&
-                                (i == 0 || _digits[i - 1].isNotEmpty);
-                            return _PinBox(
-                              digit: _digits[i],
-                              isFocused: isFocused,
-                              hasError: _verificationError != null,
-                            );
-                          }),
+                    const SizedBox(height: 24),
+                    // Title
+                    RichText(
+                      textAlign: TextAlign.center,
+                      text: const TextSpan(
+                        style: TextStyle(
+                          fontSize: 26,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF1A1A2E),
                         ),
-                        // Transparent text field on top to capture taps & keyboard
-                        Positioned.fill(
-                          child: TextField(
-                            key: const Key('registration_otp_field'),
-                            controller: _hiddenController,
-                            focusNode: _hiddenFocus,
-                            autofocus: true,
-                            enabled: !_isVerifying,
-                            keyboardType: TextInputType.number,
-                            textInputAction: TextInputAction.done,
-                            autofillHints: const [AutofillHints.oneTimeCode],
-                            inputFormatters: [
-                              FilteringTextInputFormatter.digitsOnly,
-                              LengthLimitingTextInputFormatter(_pinCount),
-                            ],
-                            onSubmitted: (_) => _verify(),
-                            style: const TextStyle(color: Colors.transparent),
-                            cursorColor: Colors.transparent,
-                            decoration: const InputDecoration(
-                              border: InputBorder.none,
-                              counterText: '',
-                            ),
+                        children: [
+                          TextSpan(text: 'Verify '),
+                          TextSpan(
+                            text: 'your email',
+                            style: TextStyle(fontStyle: FontStyle.italic),
                           ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  // Error message
-                  if (_verificationError != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Text(
-                        _verificationError!,
-                        key: const Key('registration_otp_error'),
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: Color(0xFFB3261E),
-                          fontSize: 13,
-                        ),
+                        ],
                       ),
                     ),
-                  // Dev OTP hint
-                  if (widget.developmentOtp?.isNotEmpty == true) ...[
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 14),
+                    // Subtitle
                     Text(
-                      'Dev code: ${widget.developmentOtp}',
-                      key: const Key('registration_development_otp'),
+                      "Enter code we've sent to your inbox\n${widget.email}",
                       textAlign: TextAlign.center,
                       style: const TextStyle(
-                          fontSize: 12, color: Color(0xFF6B7280)),
-                    ),
-                  ],
-                  const SizedBox(height: 28),
-                  // Resend row
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Text(
-                        "Didn't get the code? ",
-                        style:
-                            TextStyle(color: Color(0xFF6B7280), fontSize: 14),
+                        fontSize: 14,
+                        color: Color(0xFF6B7280),
+                        height: 1.5,
                       ),
-                      GestureDetector(
-                        onTap: (_isResending || widget.onResend == null)
-                            ? null
-                            : _resend,
+                    ),
+                    const SizedBox(height: 36),
+                    // 6 PIN boxes with transparent text field overlay
+                    SizedBox(
+                      height: 56,
+                      child: Stack(
+                        children: [
+                          // Visual PIN boxes
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: List.generate(_pinCount, (i) {
+                              final isFocused = _hiddenFocus.hasFocus &&
+                                  _digits[i].isEmpty &&
+                                  (i == 0 || _digits[i - 1].isNotEmpty);
+                              return _PinBox(
+                                digit: _digits[i],
+                                isFocused: isFocused,
+                                hasError: _verificationError != null,
+                              );
+                            }),
+                          ),
+                          // Transparent text field on top to capture taps & keyboard
+                          Positioned.fill(
+                            child: TextField(
+                              key: const Key('registration_otp_field'),
+                              controller: _hiddenController,
+                              focusNode: _hiddenFocus,
+                              autofocus: true,
+                              enabled: !_isVerifying,
+                              keyboardType: TextInputType.number,
+                              textInputAction: TextInputAction.done,
+                              autofillHints: const [AutofillHints.oneTimeCode],
+                              inputFormatters: [
+                                FilteringTextInputFormatter.digitsOnly,
+                                LengthLimitingTextInputFormatter(_pinCount),
+                              ],
+                              onSubmitted: (_) => _verify(),
+                              style: const TextStyle(color: Colors.transparent),
+                              cursorColor: Colors.transparent,
+                              decoration: const InputDecoration(
+                                border: InputBorder.none,
+                                counterText: '',
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    // Error message
+                    if (_verificationError != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
                         child: Text(
-                          _isResending ? 'Sending…' : 'Resend it.',
+                          _verificationError!,
+                          key: const Key('registration_otp_error'),
+                          textAlign: TextAlign.center,
                           style: const TextStyle(
-                            color: _accentBlue,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
+                            color: Color(0xFFB3261E),
+                            fontSize: 13,
                           ),
                         ),
                       ),
-                    ],
-                  ),
-                  const Spacer(),
-                  // Continue button
-                  SizedBox(
-                    height: 54,
-                    child: ElevatedButton(
-                      key: const Key('verify_registration_otp_button'),
-                      onPressed: (_isVerifying || !_isFilled) ? null : _verify,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _accentBlue,
-                        disabledBackgroundColor: const Color(0xFFB0C0F5),
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
+                    // Dev OTP hint
+                    if (widget.developmentOtp?.isNotEmpty == true) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        'Dev code: ${widget.developmentOtp}',
+                        key: const Key('registration_development_otp'),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
                       ),
-                      child: _isVerifying
-                          ? const SizedBox(
-                              width: 22,
-                              height: 22,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2.5,
-                                color: Colors.white,
-                              ),
-                            )
-                          : const Text(
-                              'Continue',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                              ),
+                    ],
+                    const SizedBox(height: 28),
+                    // Resend row
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Text(
+                          "Didn't get the code? ",
+                          style: TextStyle(color: Color(0xFF6B7280), fontSize: 14),
+                        ),
+                        GestureDetector(
+                          onTap: (_isResending || widget.onResend == null) ? null : _resend,
+                          child: Text(
+                            _isResending ? 'Sending…' : 'Resend it.',
+                            style: const TextStyle(
+                              color: _accentBlue,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
                             ),
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                  const SizedBox(height: 32),
-                ],
+                    const Spacer(),
+                    // Continue button
+                    SizedBox(
+                      height: 54,
+                      child: ElevatedButton(
+                        key: const Key('verify_registration_otp_button'),
+                        onPressed: (_isVerifying || !_isFilled) ? null : _verify,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _accentBlue,
+                          disabledBackgroundColor: const Color(0xFFB0C0F5),
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                        child: _isVerifying
+                            ? const SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.5,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Text(
+                                'Continue',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                      ),
+                    ),
+                    const SizedBox(height: 32),
+                  ],
+                ),
               ),
             ),
           ),
         ),
-      ),
-    );
-  }
+      );
 }
 
 /// A single PIN digit box.

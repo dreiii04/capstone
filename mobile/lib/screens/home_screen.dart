@@ -128,22 +128,17 @@ HistoryItem _historyFromRequestFn(
   final statusRaw = request['status']?.toString().trim() ?? 'completed';
   final transactionAmount = transaction == null
       ? null
-      : transaction['totalAmount'] ??
-          transaction['amount'] ??
-          transaction['documentPrice'];
-  final requestAmount =
-      request['totalAmount'] ?? request['amount'] ?? request['documentPrice'];
-  final requestPaymentType =
-      _firstTextFn(request, const ['paymentType', 'paymentMode']);
+      : transaction['totalAmount'] ?? transaction['amount'] ?? transaction['documentPrice'];
+  final requestAmount = request['totalAmount'] ?? request['amount'] ?? request['documentPrice'];
+  final requestPaymentType = _firstTextFn(request, const ['paymentType', 'paymentMode']);
   final paymentType = transaction == null
       ? requestPaymentType
       : _firstTextFn(transaction, const ['paymentType', 'paymentMode']);
-  final receiptStatus = transaction?['receiptStatus']?.toString() ??
-      transaction?['status']?.toString() ?? '';
+  final receiptStatus =
+      transaction?['receiptStatus']?.toString() ?? transaction?['status']?.toString() ?? '';
   final hasPaymentRecord = const ['Completed', 'Refunded'].contains(receiptStatus);
   final requestRemarks = _recordRemarksFn(request);
-  final transactionRemarks =
-      transaction == null ? '' : _recordRemarksFn(transaction);
+  final transactionRemarks = transaction == null ? '' : _recordRemarksFn(transaction);
 
   DateTime? datePaid;
   if (transaction != null && transaction['createdAt'] != null) {
@@ -166,7 +161,10 @@ HistoryItem _historyFromRequestFn(
 
   return HistoryItem(
     processingOption: request['processingOption']?.toString() ?? 'standard',
-    statusHistory: (request['statusHistory'] as List? ?? []).whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList(),
+    statusHistory: (request['statusHistory'] as List? ?? [])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList(),
     requestId: _recordRequestIdFn(request).isNotEmpty
         ? _recordRequestIdFn(request)
         : _firstTextFn(request, const ['id']),
@@ -181,9 +179,7 @@ HistoryItem _historyFromRequestFn(
       hasSubmittedPayment: false,
     ),
     isApproved: _isApprovedStatusFn(statusRaw),
-    totalAmount: hasPaymentRecord
-        ? _parseAmountFn(transactionAmount ?? requestAmount)
-        : 0,
+    totalAmount: hasPaymentRecord ? _parseAmountFn(transactionAmount ?? requestAmount) : 0,
     paymentType: paymentType,
     remarks: requestRemarks.isNotEmpty ? requestRemarks : transactionRemarks,
     refundStatus: _firstMeaningfulStatusFn([
@@ -217,8 +213,7 @@ _MappedRequestData _runRequestMapping(_MappingInput input) {
   final history = <HistoryItem>[];
   final usableTransactions = transactions
       .where((item) =>
-          _normalizedValueFn(item['docName']).isNotEmpty ||
-          _recordRequestIdFn(item).isNotEmpty)
+          _normalizedValueFn(item['docName']).isNotEmpty || _recordRequestIdFn(item).isNotEmpty)
       .toList();
   final consumedTransactions = <int>{};
 
@@ -233,10 +228,9 @@ _MappedRequestData _runRequestMapping(_MappingInput input) {
       usableTransactions,
       consumedTransactions,
     );
-    final transaction =
-        transactionIndex == null ? null : usableTransactions[transactionIndex];
-    final receiptStatus = transaction?['receiptStatus']?.toString() ??
-        transaction?['status']?.toString() ?? '';
+    final transaction = transactionIndex == null ? null : usableTransactions[transactionIndex];
+    final receiptStatus =
+        transaction?['receiptStatus']?.toString() ?? transaction?['status']?.toString() ?? '';
     final receiptRejected = const ['Rejected', 'Needs Update'].contains(receiptStatus);
     final requestRejectionReason = _firstTextFn(item, const ['rejectionReason', 'remarks']);
     final legacyReceiptCorrection = statusRaw.toLowerCase() == 'rejected' &&
@@ -256,9 +250,8 @@ _MappedRequestData _runRequestMapping(_MappingInput input) {
     final totalAmount = _parseAmountFn(item['totalAmount']);
     final resolvedTotal = totalAmount > 0 ? totalAmount : documentPrice;
     final linkedRequestId = _recordRequestIdFn(item);
-    final requestId = linkedRequestId.isNotEmpty
-        ? linkedRequestId
-        : _firstTextFn(item, const ['id', '_id']);
+    final requestId =
+        linkedRequestId.isNotEmpty ? linkedRequestId : _firstTextFn(item, const ['id', '_id']);
 
     final isRefundApproved = _normalizedValueFn(item['refundStatus']).contains('approv') ||
         (transaction != null && _normalizedValueFn(transaction['refundStatus']).contains('approv'));
@@ -285,22 +278,33 @@ _MappedRequestData _runRequestMapping(_MappingInput input) {
           dateCreated: createdAt,
           status: legacyReceiptCorrection ||
                   (receiptRejected && const ['PENDING', 'NEEDS UPDATE'].contains(status))
-              ? 'NEEDS UPDATE' : status,
+              ? 'NEEDS UPDATE'
+              : status,
           processingOption: item['processingOption']?.toString() ?? 'standard',
-          remarks: item['remarks']?.toString().isNotEmpty == true ? item['remarks'].toString() : transaction?['remarks']?.toString() ?? transaction?['adminRemarks']?.toString() ?? '',
-          correctionType: item['correctionType']?.toString().isNotEmpty == true ? item['correctionType'].toString() :
-              receiptRejected ? 'receipt' : '',
+          remarks: item['remarks']?.toString().isNotEmpty == true
+              ? item['remarks'].toString()
+              : transaction?['remarks']?.toString() ??
+                  transaction?['adminRemarks']?.toString() ??
+                  '',
+          correctionType: item['correctionType']?.toString().isNotEmpty == true
+              ? item['correctionType'].toString()
+              : receiptRejected
+                  ? 'receipt'
+                  : '',
           receiptStatus: receiptStatus,
           processingStartedAt: tryParseApiDateTime(item['processingStartedAt']),
           estimatedProcessingStart: tryParseApiCalendarDate(item['estimatedProcessingStart']),
-          estimatedCompletionDate:
-              tryParseApiCalendarDate(item['estimatedProcessingEnd']) ??
+          estimatedCompletionDate: tryParseApiCalendarDate(item['estimatedProcessingEnd']) ??
               tryParseApiCalendarDate(item['estimatedCompletionDate']),
           processingDays: (item['processingDays'] as num?)?.toInt(),
-          receiptRejectionReason: transaction?['receiptRejectionReason']?.toString().isNotEmpty == true
+          receiptRejectionReason: transaction?['receiptRejectionReason']?.toString().isNotEmpty ==
+                  true
               ? transaction!['receiptRejectionReason'].toString()
               : transaction?['rejectionReason']?.toString() ?? item['remarks']?.toString() ?? '',
-          statusHistory: (item['statusHistory'] as List? ?? []).whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList(),
+          statusHistory: (item['statusHistory'] as List? ?? [])
+              .whereType<Map>()
+              .map((e) => Map<String, dynamic>.from(e))
+              .toList(),
           documentPrice: documentPrice,
           totalAmount: resolvedTotal,
         ),
@@ -381,8 +385,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed && _selectedIndex == 0) {
       final now = DateTime.now();
       final lastRefresh = _lastResumeRefresh;
-      if (lastRefresh != null &&
-          now.difference(lastRefresh) < const Duration(seconds: 30)) {
+      if (lastRefresh != null && now.difference(lastRefresh) < const Duration(seconds: 30)) {
         return;
       }
       _lastResumeRefresh = now;
@@ -446,9 +449,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       final nextIds = nextNotifications.map((item) => item.id).toSet();
       final newItems = _hasLoadedNotifications
-          ? nextNotifications
-              .where((item) => !_notificationIds.contains(item.id))
-              .toList()
+          ? nextNotifications.where((item) => !_notificationIds.contains(item.id)).toList()
           : <NotificationItem>[];
 
       if (showPopups && newItems.isNotEmpty && mounted) {
@@ -497,8 +498,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     for (var index = 0; index < candidates.length; index++) {
       if (consumed.contains(index)) continue;
       final candidate = candidates[index];
-      if ((requestId.isNotEmpty &&
-              requestId == _normalizedValue(candidate.requestId)) ||
+      if ((requestId.isNotEmpty && requestId == _normalizedValue(candidate.requestId)) ||
           (transactionId.isNotEmpty &&
               transactionId == _normalizedValue(candidate.transactionId))) {
         return index;
@@ -511,8 +511,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (consumed.contains(index)) continue;
       final candidate = candidates[index];
       if (_normalizedValue(candidate.title) != _normalizedValue(item.title) ||
-          _normalizedValue(candidate.purpose) !=
-              _normalizedValue(item.purpose)) {
+          _normalizedValue(candidate.purpose) != _normalizedValue(item.purpose)) {
         continue;
       }
       final distance = candidate.date.difference(item.date).abs();
@@ -525,28 +524,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   HistoryItem _combineHistoryItems(HistoryItem primary, HistoryItem fallback) {
-    final paymentType = primary.paymentType.trim().isNotEmpty
-        ? primary.paymentType
-        : fallback.paymentType;
+    final paymentType =
+        primary.paymentType.trim().isNotEmpty ? primary.paymentType : fallback.paymentType;
     return HistoryItem(
-      requestId: primary.requestId.trim().isNotEmpty
-          ? primary.requestId
-          : fallback.requestId,
-      transactionId: primary.transactionId.trim().isNotEmpty
-          ? primary.transactionId
-          : fallback.transactionId,
+      requestId: primary.requestId.trim().isNotEmpty ? primary.requestId : fallback.requestId,
+      transactionId:
+          primary.transactionId.trim().isNotEmpty ? primary.transactionId : fallback.transactionId,
       title: primary.title,
       date: primary.date,
       purpose: primary.purpose,
       status: primary.status,
       isApproved: primary.isApproved,
-      totalAmount:
-          primary.totalAmount > 0 ? primary.totalAmount : fallback.totalAmount,
+      totalAmount: primary.totalAmount > 0 ? primary.totalAmount : fallback.totalAmount,
       paymentType: paymentType,
       remarks: primary.hasRemarks ? primary.remarks : fallback.remarks,
-      refundStatus: primary.hasRefundRequest
-          ? primary.refundStatus
-          : fallback.refundStatus,
+      refundStatus: primary.hasRefundRequest ? primary.refundStatus : fallback.refundStatus,
       datePaid: primary.datePaid ?? fallback.datePaid,
       dateProcessed: primary.dateProcessed ?? fallback.dateProcessed,
       dateClaimed: primary.dateClaimed ?? fallback.dateClaimed,
@@ -583,8 +575,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
     final firstTransactionId = _normalizedValue(first.transactionId);
     final secondTransactionId = _normalizedValue(second.transactionId);
-    if (firstTransactionId.isNotEmpty &&
-        firstTransactionId == secondTransactionId) {
+    if (firstTransactionId.isNotEmpty && firstTransactionId == secondTransactionId) {
       return true;
     }
     return firstRequestId.isEmpty &&
@@ -622,8 +613,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   String _loadErrorMessage(Object? error, String fallback) {
     if (error == null) return fallback;
-    final message =
-        error.toString().replaceFirst(RegExp(r'^Exception:\s*'), '').trim();
+    final message = error.toString().replaceFirst(RegExp(r'^Exception:\s*'), '').trim();
     return message.isEmpty ? fallback : message;
   }
 
@@ -663,8 +653,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final mapped = _runRequestMapping(
         _MappingInput(
           requests: requestResult.data!,
-          transactions:
-              transactionResult.data ?? const <Map<String, dynamic>>[],
+          transactions: transactionResult.data ?? const <Map<String, dynamic>>[],
         ),
       );
       nextPending = mapped.pending;
@@ -941,8 +930,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         : hour < 18
             ? 'Good afternoon'
             : 'Good evening';
-    final welcomeMessage =
-        firstName.isEmpty ? '$timeGreeting!' : '$timeGreeting, $firstName!';
+    final welcomeMessage = firstName.isEmpty ? '$timeGreeting!' : '$timeGreeting, $firstName!';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1085,150 +1073,146 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     required bool isTablet,
     required int pendingCount,
     required int historyCount,
-  }) {
-    return Container(
-      key: const Key('home_request_overview'),
-      width: double.infinity,
-      padding: EdgeInsets.all(isTablet ? 28 : 22.r),
-      decoration: BoxDecoration(
-        color: const Color(0xFF5A819B),
-        borderRadius: BorderRadius.circular(24.r),
-        border: Border.all(color: const Color(0xFFCBD5E1)),
-      ),
-      child: Stack(
-        children: [
-              Positioned(
-                right: -28.r,
-                bottom: -38.r,
-                child: Container(
-                  width: 145.r,
-                  height: 145.r,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withAlpha(13),
-                    shape: BoxShape.circle,
-                  ),
+  }) =>
+      Container(
+        key: const Key('home_request_overview'),
+        width: double.infinity,
+        padding: EdgeInsets.all(isTablet ? 28 : 22.r),
+        decoration: BoxDecoration(
+          color: const Color(0xFF5A819B),
+          borderRadius: BorderRadius.circular(24.r),
+          border: Border.all(color: const Color(0xFFCBD5E1)),
+        ),
+        child: Stack(
+          children: [
+            Positioned(
+              right: -28.r,
+              bottom: -38.r,
+              child: Container(
+                width: 145.r,
+                height: 145.r,
+                decoration: BoxDecoration(
+                  color: Colors.white.withAlpha(13),
+                  shape: BoxShape.circle,
                 ),
               ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: double.infinity,
-                    padding: EdgeInsets.symmetric(
-                      horizontal: 2.w,
-                      vertical: 4.h,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'My requests',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontFamily: 'Klavika',
-                            fontSize: isTablet ? 24 : 20.sp,
-                            fontWeight: FontWeight.w700,
-                          ),
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: double.infinity,
+                  padding: EdgeInsets.symmetric(
+                    horizontal: 2.w,
+                    vertical: 4.h,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'My requests',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontFamily: 'Klavika',
+                          fontSize: isTablet ? 24 : 20.sp,
+                          fontWeight: FontWeight.w700,
                         ),
-                        SizedBox(height: isTablet ? 22 : 16.h),
-                        Row(
+                      ),
+                      SizedBox(height: isTablet ? 22 : 16.h),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _OverviewMetric(
+                              label: 'Active',
+                              value: pendingCount.toString(),
+                              suffix: pendingCount == 1 ? 'request' : 'requests',
+                              isTablet: isTablet,
+                            ),
+                          ),
+                          Container(
+                            width: 1,
+                            height: isTablet ? 56 : 48.h,
+                            color: Colors.white30,
+                          ),
+                          SizedBox(width: isTablet ? 26 : 18.w),
+                          Expanded(
+                            child: _OverviewMetric(
+                              label: 'Records',
+                              value: historyCount.toString(),
+                              suffix: 'history',
+                              isTablet: isTablet,
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (_pendingRequestsError != null && _pendingRequestsError!.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          'Requests could not be refreshed: $_pendingRequestsError',
+                          style: const TextStyle(color: Colors.white, fontSize: 12),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                SizedBox(height: isTablet ? 48 : 42.h),
+                Text(
+                  'Ready for your next document?',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontFamily: 'Klavika',
+                    fontSize: isTablet ? 25 : 20.sp,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                SizedBox(height: isTablet ? 26 : 22.h),
+                Align(
+                  alignment: Alignment.center,
+                  child: Material(
+                    color: const Color(0xFFC8F36B),
+                    borderRadius: BorderRadius.circular(22.r),
+                    child: InkWell(
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => DataConsentScreen(profile: _profileSummary),
+                        ),
+                      ),
+                      borderRadius: BorderRadius.circular(22.r),
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: isTablet ? 34 : 30.w,
+                          vertical: isTablet ? 15 : 14.h,
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            Expanded(
-                              child: _OverviewMetric(
-                                label: 'Active',
-                                value: pendingCount.toString(),
-                                suffix:
-                                    pendingCount == 1 ? 'request' : 'requests',
-                                isTablet: isTablet,
-                              ),
+                            Icon(
+                              Icons.add_rounded,
+                              color: const Color(0xFF2E3B0A),
+                              size: isTablet ? 23 : 20.sp,
                             ),
-                            Container(
-                              width: 1,
-                              height: isTablet ? 56 : 48.h,
-                              color: Colors.white30,
-                            ),
-                            SizedBox(width: isTablet ? 26 : 18.w),
-                            Expanded(
-                              child: _OverviewMetric(
-                                label: 'Records',
-                                value: historyCount.toString(),
-                                suffix: 'history',
-                                isTablet: isTablet,
+                            SizedBox(width: 4.w),
+                            Text(
+                              'New request',
+                              style: TextStyle(
+                                color: const Color(0xFF2E3B0A),
+                                fontFamily: 'Frutiger',
+                                fontSize: isTablet ? 16 : 14.sp,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
                           ],
                         ),
-                        if (_pendingRequestsError != null &&
-                            _pendingRequestsError!.isNotEmpty) ...[
-                          const SizedBox(height: 12),
-                          Text(
-                            'Requests could not be refreshed: $_pendingRequestsError',
-                            style: const TextStyle(color: Colors.white, fontSize: 12),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  SizedBox(height: isTablet ? 48 : 42.h),
-                  Text(
-                    'Ready for your next document?',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontFamily: 'Klavika',
-                      fontSize: isTablet ? 25 : 20.sp,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  SizedBox(height: isTablet ? 26 : 22.h),
-                  Align(
-                    alignment: Alignment.center,
-                    child: Material(
-                      color: const Color(0xFFC8F36B),
-                      borderRadius: BorderRadius.circular(22.r),
-                      child: InkWell(
-                        onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) =>
-                                DataConsentScreen(profile: _profileSummary),
-                          ),
-                        ),
-                        borderRadius: BorderRadius.circular(22.r),
-                        child: Padding(
-                          padding: EdgeInsets.symmetric(
-                            horizontal: isTablet ? 34 : 30.w,
-                            vertical: isTablet ? 15 : 14.h,
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.add_rounded,
-                                color: const Color(0xFF2E3B0A),
-                                size: isTablet ? 23 : 20.sp,
-                              ),
-                              SizedBox(width: 4.w),
-                              Text(
-                                'New request',
-                                style: TextStyle(
-                                  color: const Color(0xFF2E3B0A),
-                                  fontFamily: 'Frutiger',
-                                  fontSize: isTablet ? 16 : 14.sp,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
                       ),
                     ),
                   ),
-                ],
-              ),
-            ],
-          ),
-        );
-  }
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
 }
 
 // ---------------------------------------------------------------------------
@@ -1249,49 +1233,47 @@ class _OverviewMetric extends StatelessWidget {
   final bool isTablet;
 
   @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            color: Colors.white70,
-            fontFamily: 'Frutiger',
-            fontSize: isTablet ? 17 : 13.sp,
-          ),
-        ),
-        SizedBox(height: isTablet ? 4 : 2.h),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(
-              value,
-              style: TextStyle(
-                color: Colors.white,
-                fontFamily: 'Klavika',
-                fontSize: isTablet ? 38 : 32.sp,
-                height: 1,
-                fontWeight: FontWeight.w700,
-              ),
+  Widget build(BuildContext context) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              color: Colors.white70,
+              fontFamily: 'Frutiger',
+              fontSize: isTablet ? 17 : 13.sp,
             ),
-            SizedBox(width: isTablet ? 7 : 5.w),
-            Padding(
-              padding: EdgeInsets.only(bottom: isTablet ? 3 : 2.h),
-              child: Text(
-                suffix,
+          ),
+          SizedBox(height: isTablet ? 4 : 2.h),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                value,
                 style: TextStyle(
-                  color: Colors.white70,
-                  fontFamily: 'Frutiger',
-                  fontSize: isTablet ? 14 : 11.sp,
+                  color: Colors.white,
+                  fontFamily: 'Klavika',
+                  fontSize: isTablet ? 38 : 32.sp,
+                  height: 1,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
+              SizedBox(width: isTablet ? 7 : 5.w),
+              Padding(
+                padding: EdgeInsets.only(bottom: isTablet ? 3 : 2.h),
+                child: Text(
+                  suffix,
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontFamily: 'Frutiger',
+                    fontSize: isTablet ? 14 : 11.sp,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      );
 }
 
 class _TopActionButton extends StatelessWidget {
@@ -1310,50 +1292,48 @@ class _TopActionButton extends StatelessWidget {
   final int badge;
 
   @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      label: label,
-      child: Material(
-        color: Colors.white,
-        shape: const CircleBorder(),
-        elevation: 1,
-        shadowColor: Colors.black12,
-        child: InkWell(
-          onTap: onTap,
-          customBorder: const CircleBorder(),
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              SizedBox(
-                width: isTablet ? 52 : 48,
-                height: isTablet ? 52 : 48,
-                child: Icon(
-                  icon,
-                  size: isTablet ? 26 : 24.sp,
-                  color: fbDarkPrimary,
-                ),
-              ),
-              if (badge > 0)
-                Positioned(
-                  top: 1,
-                  right: 1,
-                  child: Container(
-                    width: 9.r,
-                    height: 9.r,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFF5A6F),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 1.5),
-                    ),
+  Widget build(BuildContext context) => Semantics(
+        button: true,
+        label: label,
+        child: Material(
+          color: Colors.white,
+          shape: const CircleBorder(),
+          elevation: 1,
+          shadowColor: Colors.black12,
+          child: InkWell(
+            onTap: onTap,
+            customBorder: const CircleBorder(),
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                SizedBox(
+                  width: isTablet ? 52 : 48,
+                  height: isTablet ? 52 : 48,
+                  child: Icon(
+                    icon,
+                    size: isTablet ? 26 : 24.sp,
+                    color: fbDarkPrimary,
                   ),
                 ),
-            ],
+                if (badge > 0)
+                  Positioned(
+                    top: 1,
+                    right: 1,
+                    child: Container(
+                      width: 9.r,
+                      height: 9.r,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFF5A6F),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 1.5),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
-      ),
-    );
-  }
+      );
 }
 
 // ---------------------------------------------------------------------------

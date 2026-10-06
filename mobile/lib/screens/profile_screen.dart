@@ -45,8 +45,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   void didUpdateWidget(covariant ProfileScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.initialProfile != null &&
-        widget.initialProfile != oldWidget.initialProfile) {
+    if (widget.initialProfile != null && widget.initialProfile != oldWidget.initialProfile) {
       setState(() {
         _profile = widget.initialProfile;
         _isLoading = false;
@@ -93,23 +92,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
     Navigator.maybePop(context);
   }
 
-  PreferredSizeWidget _buildStateAppBar() {
-    return AppBar(
-      backgroundColor: const Color(0xFF5D7E97),
-      foregroundColor: Colors.white,
-      elevation: 0,
-      leading: IconButton(
-        key: const Key('profile_back_button'),
-        tooltip: 'Back to home',
-        onPressed: _handleBack,
-        icon: const Icon(Icons.arrow_back_rounded),
-      ),
-      title: const Text(
-        'Profile',
-        style: TextStyle(fontWeight: FontWeight.w700),
-      ),
-    );
-  }
+  PreferredSizeWidget _buildStateAppBar() => AppBar(
+        backgroundColor: const Color(0xFF5D7E97),
+        foregroundColor: Colors.white,
+        elevation: 0,
+        leading: IconButton(
+          key: const Key('profile_back_button'),
+          tooltip: 'Back to home',
+          onPressed: _handleBack,
+          icon: const Icon(Icons.arrow_back_rounded),
+        ),
+        title: const Text(
+          'Profile',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -192,8 +189,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   child: SafeArea(
                     bottom: false,
                     child: Padding(
-                      padding:
-                          EdgeInsets.only(left: 8.w, right: 20.w, top: 4.h),
+                      padding: EdgeInsets.only(left: 8.w, right: 20.w, top: 4.h),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -224,8 +220,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 Positioned(
                   bottom: -50.h,
                   child: Container(
-                    decoration: const BoxDecoration(
-                        color: Colors.white, shape: BoxShape.circle),
+                    decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
                     padding: EdgeInsets.all(5.r),
                     child: ProfileAvatar(
                       key: const Key('profile_screen_avatar'),
@@ -258,14 +253,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 children: [
                   Text(
                     "Personal Information",
-                    style:
-                        TextStyle(fontSize: 18.sp, fontWeight: FontWeight.bold),
+                    style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.bold),
                   ),
                   SizedBox(height: 20.h),
                   _buildInfoRow("Name:", profile.fullName),
                   _buildInfoRow("Account type:", profile.roleLabel),
-                  if (profile.isCurrentStudent)
-                    _buildInfoRow("Student ID:", profile.studentId),
+                  if (profile.isCurrentStudent) _buildInfoRow("Student ID:", profile.studentId),
                   _buildInfoRow(
                     "${profile.academicYearLabel}:",
                     profile.yearLevel,
@@ -310,8 +303,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 foregroundColor: Colors.white,
                 fixedSize: Size(210.w, 48.h),
                 elevation: 0,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20.r)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20.r)),
               ),
               child: Text(
                 "Edit profile",
@@ -370,8 +362,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 if (!confirmed || !context.mounted) return;
                 Navigator.of(context).pushAndRemoveUntil(
                   MaterialPageRoute(
-                    builder: (_) =>
-                        const SplashScreen(mode: SplashMode.logout),
+                    builder: (_) => const SplashScreen(mode: SplashMode.logout),
                   ),
                   (route) => false,
                 );
@@ -379,8 +370,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: darkNavy,
                 fixedSize: Size(180.w, 45.h),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20.r)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20.r)),
               ),
               child: Text(
                 "Log out",
@@ -394,30 +384,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   // Helper to build the row labels and values
-  Widget _buildInfoRow(String label, String value) {
-    return Padding(
-      padding: EdgeInsets.symmetric(vertical: 4.h),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 132.w,
-            child: Text(
-              label,
-              style: TextStyle(fontSize: 13.sp, color: Colors.black87),
+  Widget _buildInfoRow(String label, String value) => Padding(
+        padding: EdgeInsets.symmetric(vertical: 4.h),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 132.w,
+              child: Text(
+                label,
+                style: TextStyle(fontSize: 13.sp, color: Colors.black87),
+              ),
             ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: TextStyle(
-                  fontSize: 13.sp,
-                  color: Colors.black,
-                  fontWeight: FontWeight.w500),
+            Expanded(
+              child: Text(
+                value,
+                style: TextStyle(fontSize: 13.sp, color: Colors.black, fontWeight: FontWeight.w500),
+              ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
+          ],
+        ),
+      );
 }

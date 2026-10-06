@@ -10,7 +10,6 @@ class ChooseActorScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-  
     return Scaffold(
       backgroundColor: Colors.white,
       body: Column(
@@ -20,20 +19,15 @@ class ChooseActorScreen extends StatelessWidget {
             flex: 2,
             child: Center(
               child: Padding(
-               padding: EdgeInsets.only(top: 40.h),
-               
+                padding: EdgeInsets.only(top: 40.h),
                 child: Image.asset(
                   'assets/logo/logo.png', // Ensure this points to your logo with the tagline
                   height: 80.h,
-                  errorBuilder: (context, error, stackTrace) =>
-                      Icon(Icons.image, size: 50.h),
+                  errorBuilder: (context, error, stackTrace) => Icon(Icons.image, size: 50.h),
                 ),
-                
               ),
             ),
           ),
-    
-
 
           // Bottom Section: Role Selection
           Expanded(
@@ -42,12 +36,8 @@ class ChooseActorScreen extends StatelessWidget {
               width: double.infinity,
               decoration: BoxDecoration(
                 color: fbPrimary,
-                borderRadius: BorderRadius.only(
-                  topLeft: Radius.circular(30.r),
-                  topRight: Radius.circular(30.r),
-                ),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(30.r)),
               ),
-
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -65,54 +55,29 @@ class ChooseActorScreen extends StatelessWidget {
                     color: Colors.white,
                   ),
                   SizedBox(height: 30.h),
-
-                  // Student Button
-                  CustomInkwellButton(
-                    buttonName: 'STUDENT',
-                    fontSize: 22.sp,
-                    fontWeight: FontWeight.bold,
-                    bgColor: fbBackgroundLight,
-                    fontColor: fbDarkPrimary, // Dark navy text
-                    onTap: () {
-                      Navigator.pushReplacement(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const LogInScreen(),
-                        ),
-                      );
-                    },
-                    height: 65.h,
-                    width: 280.w,
-                  ),
-
+                  _roleButton(context, 'STUDENT'),
                   SizedBox(height: 25.h),
-
-                  // Alumni Button
-                  CustomInkwellButton(
-                    buttonName: 'ALUMNI',
-                    fontSize: 22.sp,
-                    fontWeight: FontWeight.bold,
-                    bgColor: fbBackgroundLight,
-                    fontColor: fbDarkPrimary,
-                    onTap: () {
-                      Navigator.pushReplacement(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const LogInScreen(),
-                        ),
-                      );
-                    },
-                    height: 65.h,
-                    width: 280.w,
-                  ),
+                  _roleButton(context, 'ALUMNI'),
                 ],
               ),
             ),
           ),
-
-
         ],
       ),
     );
   }
+
+  Widget _roleButton(BuildContext context, String label) => CustomInkwellButton(
+        buttonName: label,
+        fontSize: 22.sp,
+        fontWeight: FontWeight.bold,
+        bgColor: fbBackgroundLight,
+        fontColor: fbDarkPrimary,
+        onTap: () => Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const LogInScreen()),
+        ),
+        height: 65.h,
+        width: 280.w,
+      );
 }

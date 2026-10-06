@@ -2,7 +2,6 @@ export const documentEligibilityByRole = {
   student: new Set([
     'f-137 (sh)',
     'f-137 (gs/jh)',
-    'transcript of records (tor)',
     'general weighted average (gwa)',
     'good moral character/esc (gmc/esc)',
     'card (re-print)',
@@ -16,17 +15,14 @@ export const documentEligibilityByRole = {
     'transfer credential',
     'certificate of enrollment',
     'clearance',
-    'others',
   ]),
   former_student: new Set([
-    'transcript of records (tor)',
     'general weighted average (gwa)',
     'good moral character/esc (gmc/esc)',
     'certified true copy (ctc)',
     'certificate of grades',
     'transfer credential',
     'clearance',
-    'others',
   ]),
   alumni: new Set([
     'transcript of records (tor)',
@@ -37,7 +33,6 @@ export const documentEligibilityByRole = {
     'certificate of grades',
     'transfer credential',
     'clearance',
-    'others',
   ]),
 };
 
@@ -64,7 +59,5 @@ export function isDocumentAllowedForRole(docName, role) {
   if (!allowed) return false;
   const raw = String(docName || '').trim().toLowerCase().replace(/\s+/g, ' ');
   const name = aliases[raw] || raw;
-  if (!name) return false;
-  const known = Object.values(documentEligibilityByRole).some(set => set.has(name));
-  return known ? allowed.has(name) : allowed.has('others');
+  return allowed.has(name);
 }

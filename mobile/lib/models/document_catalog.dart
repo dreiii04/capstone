@@ -20,7 +20,7 @@ const List<DocumentOption> documentOptions = [
   DocumentOption('F-137 (GS/JH)', 250,
       allowedRoles: {'student'}),
   DocumentOption('Transcript of Records (TOR)', 600,
-      allowedRoles: _allRoles),
+      allowedRoles: {'alumni'}),
   DocumentOption('General Weighted Average (GWA)', 250,
       allowedRoles: _allRoles),
   DocumentOption('Good Moral Character/ESC (GMC/ESC)', 200,
@@ -68,8 +68,7 @@ bool isDocumentAllowedForRole(String docName, String normalizedRole) {
       return option.allowedRoles.contains(normalizedRole);
     }
   }
-  // Unknown/custom documents remain eligible for existing requests.
-  return true;
+  return false;
 }
 
 double documentPriceForName(String name) {

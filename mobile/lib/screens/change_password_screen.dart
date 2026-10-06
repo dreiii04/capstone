@@ -1,3 +1,5 @@
+import '../widgets/form_ui.dart';
+import '../models/password_rules.dart';
 import 'package:capstone_project/services/mongo_data_api_service.dart';
 import 'package:capstone_project/widgets/confirmation_dialog.dart';
 import 'package:capstone_project/widgets/simple_message_dialog.dart';
@@ -55,22 +57,6 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     if (mounted) setState(() {});
   }
 
-  bool _validLength(String value) => value.length >= 8 && value.length <= 1024;
-  bool _hasLetterCases(String value) =>
-      RegExp(r'[A-Z]').hasMatch(value) && RegExp(r'[a-z]').hasMatch(value);
-  bool _hasNumber(String value) => RegExp(r'[0-9]').hasMatch(value);
-  bool _hasSpecial(String value) =>
-      RegExp(r'[!@#\$%^&*(),.?":{}|<>]').hasMatch(value);
-  bool _hasNoSpaces(String value) => !RegExp(r'\s').hasMatch(value);
-
-  bool _isStrongPassword(String value) {
-    return _validLength(value) &&
-        _hasLetterCases(value) &&
-        _hasNumber(value) &&
-        _hasSpecial(value) &&
-        _hasNoSpaces(value);
-  }
-
   String? _validateCurrentPassword(String? value) {
     if (value == null || value.isEmpty) return 'Enter your current password';
     if (value.length > 1024) return 'Current password is too long';
@@ -80,7 +66,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   String? _validateNewPassword(String? value) {
     final password = value ?? '';
     if (password.isEmpty) return 'Enter a new password';
-    if (!_isStrongPassword(password)) {
+    if (!PasswordRules.isStrong(password)) {
       return 'Complete all password requirements below';
     }
     if (password == _currentPasswordController.text) {
@@ -171,8 +157,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
         top: false,
         child: AutofillGroup(
           child: SingleChildScrollView(
-            keyboardDismissBehavior:
-                ScrollViewKeyboardDismissBehavior.onDrag,
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             padding: EdgeInsets.fromLTRB(
               MediaQuery.sizeOf(context).shortestSide >= 600 ? 32.0 : 16.0,
               24,
@@ -195,111 +180,102 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     );
   }
 
-  Widget _buildPasswordForm(String password) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFE2E8EC)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Text(
-            'Password details',
-            style: TextStyle(
-              color: _darkNavy,
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
+  Widget _buildPasswordForm(String password) => Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFFE2E8EC)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              'Password details',
+              style: TextStyle(
+                color: _darkNavy,
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+              ),
             ),
-          ),
-          const SizedBox(height: 18),
-          _passwordField(
-            fieldKey: const Key('change_current_password_field'),
-            controller: _currentPasswordController,
-            label: 'Current password',
-            visible: _showCurrentPassword,
-            validator: _validateCurrentPassword,
-            autofillHints: const [AutofillHints.password],
-            onToggle: () => setState(
-              () => _showCurrentPassword = !_showCurrentPassword,
+            const SizedBox(height: 18),
+            _passwordField(
+              fieldKey: const Key('change_current_password_field'),
+              controller: _currentPasswordController,
+              label: 'Current password',
+              visible: _showCurrentPassword,
+              validator: _validateCurrentPassword,
+              autofillHints: const [AutofillHints.password],
+              onToggle: () => setState(
+                () => _showCurrentPassword = !_showCurrentPassword,
+              ),
             ),
-          ),
-          const SizedBox(height: 14),
-          _passwordField(
-            fieldKey: const Key('change_new_password_field'),
-            controller: _newPasswordController,
-            label: 'New password',
-            visible: _showNewPassword,
-            validator: _validateNewPassword,
-            autofillHints: const [AutofillHints.newPassword],
-            onToggle: () => setState(
-              () => _showNewPassword = !_showNewPassword,
+            const SizedBox(height: 14),
+            _passwordField(
+              fieldKey: const Key('change_new_password_field'),
+              controller: _newPasswordController,
+              label: 'New password',
+              visible: _showNewPassword,
+              validator: _validateNewPassword,
+              autofillHints: const [AutofillHints.newPassword],
+              onToggle: () => setState(
+                () => _showNewPassword = !_showNewPassword,
+              ),
             ),
-          ),
-          const SizedBox(height: 12),
-          _requirement('8-1024 characters', _validLength(password)),
-          _requirement(
-            'Uppercase and lowercase letters',
-            _hasLetterCases(password),
-          ),
-          _requirement('At least one number', _hasNumber(password)),
-          _requirement(
-            'At least one special character',
-            _hasSpecial(password),
-          ),
-          _requirement('No spaces', _hasNoSpaces(password)),
-          const SizedBox(height: 14),
-          _passwordField(
-            fieldKey: const Key('change_confirm_password_field'),
-            controller: _confirmPasswordController,
-            label: 'Confirm new password',
-            visible: _showConfirmation,
-            validator: _validateConfirmation,
-            autofillHints: const [AutofillHints.newPassword],
-            textInputAction: TextInputAction.done,
-            onFieldSubmitted: (_) => _changePassword(),
-            onToggle: () => setState(
-              () => _showConfirmation = !_showConfirmation,
+            const SizedBox(height: 12),
+            _requirement('8-1024 characters', PasswordRules.validLength(password)),
+            _requirement(
+              'Uppercase and lowercase letters',
+              PasswordRules.hasLetterCases(password),
             ),
-          ),
-          const SizedBox(height: 24),
-          SizedBox(
-            height: 52,
-            child: ElevatedButton.icon(
-              key: const Key('change_password_submit_button'),
-              onPressed: _isSubmitting ? null : _changePassword,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _darkNavy,
-                foregroundColor: Colors.white,
-                disabledBackgroundColor: const Color(0xFFDDE3E7),
-                disabledForegroundColor: const Color(0xFF7B878F),
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
+            _requirement('At least one number', PasswordRules.hasNumber(password)),
+            _requirement(
+              'At least one special character',
+              PasswordRules.hasSpecial(password),
+            ),
+            _requirement('No spaces', PasswordRules.hasNoSpaces(password)),
+            const SizedBox(height: 14),
+            _passwordField(
+              fieldKey: const Key('change_confirm_password_field'),
+              controller: _confirmPasswordController,
+              label: 'Confirm new password',
+              visible: _showConfirmation,
+              validator: _validateConfirmation,
+              autofillHints: const [AutofillHints.newPassword],
+              textInputAction: TextInputAction.done,
+              onFieldSubmitted: (_) => _changePassword(),
+              onToggle: () => setState(
+                () => _showConfirmation = !_showConfirmation,
+              ),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              height: 52,
+              child: ElevatedButton.icon(
+                key: const Key('change_password_submit_button'),
+                onPressed: _isSubmitting ? null : _changePassword,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _darkNavy,
+                  foregroundColor: Colors.white,
+                  disabledBackgroundColor: const Color(0xFFDDE3E7),
+                  disabledForegroundColor: const Color(0xFF7B878F),
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+                icon: _isSubmitting
+                    ? const ButtonProgressIndicator()
+                    : const Icon(Icons.lock_reset_rounded),
+                label: Text(
+                  _isSubmitting ? 'Changing password...' : 'Change password',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
                 ),
               ),
-              icon: _isSubmitting
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Icon(Icons.lock_reset_rounded),
-              label: Text(
-                _isSubmitting ? 'Changing password...' : 'Change password',
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
+          ],
+        ),
+      );
 
   Widget _passwordField({
     required Key fieldKey,
@@ -311,62 +287,58 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     required VoidCallback onToggle,
     TextInputAction textInputAction = TextInputAction.next,
     ValueChanged<String>? onFieldSubmitted,
-  }) {
-    return TextFormField(
-      key: fieldKey,
-      controller: controller,
-      validator: validator,
-      obscureText: !visible,
-      textInputAction: textInputAction,
-      autofillHints: autofillHints,
-      onFieldSubmitted: onFieldSubmitted,
-      decoration: InputDecoration(
-        labelText: label,
-        prefixIcon: const Icon(Icons.lock_outline_rounded),
-        suffixIcon: IconButton(
-          tooltip: visible ? 'Hide password' : 'Show password',
-          onPressed: onToggle,
-          icon: Icon(
-            visible ? Icons.visibility_outlined : Icons.visibility_off_outlined,
-          ),
-        ),
-        filled: true,
-        fillColor: const Color(0xFFF8FAFB),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFFD8E0E5)),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: _primaryBlue, width: 2),
-        ),
-      ),
-    );
-  }
-
-  Widget _requirement(String label, bool met) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 5),
-      child: Row(
-        children: [
-          Icon(
-            met ? Icons.check_circle_rounded : Icons.circle_outlined,
-            size: 17,
-            color: met ? const Color(0xFF2E7D32) : const Color(0xFF82909A),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              label,
-              style: TextStyle(
-                color: met ? const Color(0xFF2E7D32) : const Color(0xFF687680),
-                fontSize: 13,
-              ),
+  }) =>
+      TextFormField(
+        key: fieldKey,
+        controller: controller,
+        validator: validator,
+        obscureText: !visible,
+        textInputAction: textInputAction,
+        autofillHints: autofillHints,
+        onFieldSubmitted: onFieldSubmitted,
+        decoration: InputDecoration(
+          labelText: label,
+          helperText: label == 'New password'
+              ? 'Password required. Minimum 8 characters.'
+              : 'Password required.',
+          helperMaxLines: 2,
+          prefixIcon: const Icon(Icons.lock_outline_rounded),
+          suffixIcon: IconButton(
+            tooltip: visible ? 'Hide password' : 'Show password',
+            onPressed: onToggle,
+            icon: Icon(
+              visible ? Icons.visibility_outlined : Icons.visibility_off_outlined,
             ),
           ),
-        ],
-      ),
-    );
-  }
+          filled: true,
+          fillColor: const Color(0xFFF8FAFB),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          enabledBorder: roundedInputBorder(12, side: const BorderSide(color: Color(0xFFD8E0E5))),
+          focusedBorder:
+              roundedInputBorder(12, side: const BorderSide(color: _primaryBlue, width: 2)),
+        ),
+      );
+
+  Widget _requirement(String label, bool met) => Padding(
+        padding: const EdgeInsets.only(bottom: 5),
+        child: Row(
+          children: [
+            Icon(
+              met ? Icons.check_circle_rounded : Icons.circle_outlined,
+              size: 17,
+              color: met ? const Color(0xFF2E7D32) : const Color(0xFF82909A),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                label,
+                style: TextStyle(
+                  color: met ? const Color(0xFF2E7D32) : const Color(0xFF687680),
+                  fontSize: 13,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
 }

@@ -30,8 +30,7 @@ class SplashScreen extends StatefulWidget {
   State<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen>
-    with SingleTickerProviderStateMixin {
+class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderStateMixin {
   late final AnimationController _animationController;
   late final Animation<double> _fadeAnimation;
   late final Animation<double> _scaleAnimation;
@@ -53,12 +52,7 @@ class _SplashScreenState extends State<SplashScreen>
       curve: Curves.easeOut,
     );
 
-    _scaleAnimation = Tween<double>(begin: 0.95, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _animationController,
-        curve: Curves.easeOut,
-      ),
-    );
+    _scaleAnimation = Tween<double>(begin: 0.95, end: 1.0).animate(_fadeAnimation);
 
     _animationController.forward();
     _handleTransition();
@@ -71,20 +65,18 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _handleTransition() async {
+    final timer = Future.delayed(widget.duration ?? const Duration(milliseconds: 250));
     switch (widget.mode) {
       case SplashMode.initial:
-        final displayTimer = Future.delayed(
-          widget.duration ?? const Duration(milliseconds: 250),
-        );
         try {
           await Future.wait([
             MongoDataApiService.instance.initialize().timeout(
-              const Duration(seconds: 3),
-            ),
-            displayTimer,
+                  const Duration(seconds: 3),
+                ),
+            timer,
           ]);
         } catch (_) {
-          await displayTimer;
+          await timer;
         }
         if (!mounted) return;
         final hasSession = MongoDataApiService.instance.hasSession;
@@ -93,15 +85,13 @@ class _SplashScreenState extends State<SplashScreen>
         break;
 
       case SplashMode.login:
-        final timer = Future.delayed(
-          widget.duration ?? const Duration(milliseconds: 250),
-        );
+      case SplashMode.request:
         await timer;
         if (!mounted) return;
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(
             builder: (_) => HomeScreen(
-              initialIndex: widget.targetIndex ?? 0,
+              initialIndex: widget.targetIndex ?? (widget.mode == SplashMode.login ? 0 : 1),
             ),
           ),
           (route) => false,
@@ -109,9 +99,6 @@ class _SplashScreenState extends State<SplashScreen>
         break;
 
       case SplashMode.logout:
-        final timer = Future.delayed(
-          widget.duration ?? const Duration(milliseconds: 250),
-        );
         try {
           await Future.wait([
             MongoDataApiService.instance.logout(),
@@ -122,22 +109,6 @@ class _SplashScreenState extends State<SplashScreen>
         }
         if (!mounted) return;
         Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
-        break;
-
-      case SplashMode.request:
-        final timer = Future.delayed(
-          widget.duration ?? const Duration(milliseconds: 250),
-        );
-        await timer;
-        if (!mounted) return;
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(
-            builder: (_) => HomeScreen(
-              initialIndex: widget.targetIndex ?? 1,
-            ),
-          ),
-          (route) => false,
-        );
         break;
     }
   }
@@ -159,104 +130,102 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _darkNavy,
-      body: Container(
-        width: double.infinity,
-        height: double.infinity,
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [_darkNavy, _primaryBlue],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
+  Widget build(BuildContext context) => Scaffold(
+        backgroundColor: _darkNavy,
+        body: Container(
+          width: double.infinity,
+          height: double.infinity,
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [_darkNavy, _primaryBlue],
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+            ),
           ),
-        ),
-        child: SafeArea(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Spacer(flex: 2),
-              RepaintBoundary(
-                child: FadeTransition(
-                  opacity: _fadeAnimation,
-                  child: ScaleTransition(
-                    scale: _scaleAnimation,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          padding: EdgeInsets.all(20.r),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: Colors.white.withAlpha(60),
-                              width: 3,
+          child: SafeArea(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Spacer(flex: 2),
+                RepaintBoundary(
+                  child: FadeTransition(
+                    opacity: _fadeAnimation,
+                    child: ScaleTransition(
+                      scale: _scaleAnimation,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            padding: EdgeInsets.all(20.r),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: Colors.white.withAlpha(60),
+                                width: 3,
+                              ),
+                            ),
+                            child: Image.asset(
+                              'assets/logo/logo.png',
+                              width: 100.w,
+                              height: 100.w,
+                              cacheWidth: 300,
+                              fit: BoxFit.contain,
+                              errorBuilder: (_, __, ___) => Icon(
+                                Icons.school_rounded,
+                                color: _darkNavy,
+                                size: 64.r,
+                              ),
                             ),
                           ),
-                          child: Image.asset(
-                            'assets/logo/logo.png',
-                            width: 100.w,
-                            height: 100.w,
-                            cacheWidth: 300,
-                            fit: BoxFit.contain,
-                            errorBuilder: (_, __, ___) => Icon(
-                              Icons.school_rounded,
-                              color: _darkNavy,
-                              size: 64.r,
-                            ),
-                          ),
-                        ),
-                        SizedBox(height: 24.h),
-                        Text(
-                          'VerifiTOR',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontFamily: 'Frutiger',
-                            fontSize: 32.sp,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 1.5,
-                          ),
-                        ),
-                        SizedBox(height: 8.h),
-                        Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 24.w),
-                          child: Text(
-                            _subtitleText,
-                            textAlign: TextAlign.center,
+                          SizedBox(height: 24.h),
+                          Text(
+                            'VerifiTOR',
                             style: TextStyle(
-                              color: Colors.white.withAlpha(217),
-                              fontSize: 13.sp,
-                              fontWeight: FontWeight.w400,
-                              letterSpacing: 0.5,
+                              color: Colors.white,
+                              fontFamily: 'Frutiger',
+                              fontSize: 32.sp,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 1.5,
                             ),
                           ),
-                        ),
-                      ],
+                          SizedBox(height: 8.h),
+                          Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 24.w),
+                            child: Text(
+                              _subtitleText,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Colors.white.withAlpha(217),
+                                fontSize: 13.sp,
+                                fontWeight: FontWeight.w400,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
-              ),
-              const Spacer(flex: 2),
-              RepaintBoundary(
-                child: FadeTransition(
-                  opacity: _fadeAnimation,
-                  child: SizedBox(
-                    width: 24.r,
-                    height: 24.r,
-                    child: const CircularProgressIndicator(
-                      strokeWidth: 2.5,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white70),
+                const Spacer(flex: 2),
+                RepaintBoundary(
+                  child: FadeTransition(
+                    opacity: _fadeAnimation,
+                    child: SizedBox(
+                      width: 24.r,
+                      height: 24.r,
+                      child: const CircularProgressIndicator(
+                        strokeWidth: 2.5,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white70),
+                      ),
                     ),
                   ),
                 ),
-              ),
-              SizedBox(height: 36.h),
-            ],
+                SizedBox(height: 36.h),
+              ],
+            ),
           ),
         ),
-      ),
-    );
-  }
+      );
 }

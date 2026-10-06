@@ -88,8 +88,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
     final confirmed = await showConfirmationDialog(
       context,
       title: 'Mark all as read?',
-      message:
-          'Are you sure you want to mark all unread notifications as read?',
+      message: 'Are you sure you want to mark all unread notifications as read?',
       confirmLabel: 'Mark all as read',
       cancelLabel: 'Cancel',
       icon: Icons.done_all_rounded,
@@ -98,8 +97,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
 
     setState(() => _isMarkingAll = true);
     try {
-      await (widget.onMarkAllRead ??
-          MongoDataApiService.instance.markAllNotificationsRead)();
+      await (widget.onMarkAllRead ?? MongoDataApiService.instance.markAllNotificationsRead)();
       if (!mounted) return;
       setState(() {
         for (final notification in widget.notifications) {
@@ -118,9 +116,8 @@ class _NotificationScreenState extends State<NotificationScreen> {
   Future<void> _dismissNotification(NotificationItem notification) async {
     if (_updatingIds.contains(notification.id)) return;
 
-    final itemTitle = notification.title.trim().isNotEmpty
-        ? notification.title.trim()
-        : 'this notification';
+    final itemTitle =
+        notification.title.trim().isNotEmpty ? notification.title.trim() : 'this notification';
     final confirmed = await showConfirmationDialog(
       context,
       title: 'Dismiss Notification?',
@@ -134,8 +131,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
 
     setState(() => _updatingIds.add(notification.id));
     try {
-      await (widget.onDismiss ??
-          MongoDataApiService.instance.dismissNotification)(notification.id);
+      await (widget.onDismiss ?? MongoDataApiService.instance.dismissNotification)(notification.id);
       if (!mounted) return;
       setState(() {
         widget.notifications.remove(notification);
@@ -165,104 +161,98 @@ class _NotificationScreenState extends State<NotificationScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        backgroundColor: fbPrimary,
-        foregroundColor: Colors.white,
-        title: const Text('Notifications'),
-        elevation: 0,
-      ),
-      body: Column(
-        children: [
-          // Header with Mark All Read
-          Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 16.h),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const SizedBox.shrink(),
-                TextButton(
-                  key: const Key('mark_all_notifications_read'),
-                  onPressed: _isMarkingAll ||
-                          !widget.notifications.any((item) => !item.isRead)
-                      ? null
-                      : _markAllAsRead,
-                  child: _isMarkingAll
-                      ? SizedBox.square(
-                          dimension: 18.r,
-                          child:
-                              const CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : Text(
-                          'Mark All Read',
-                          style: TextStyle(
-                            color: fbPrimary,
-                            fontSize: 14.sp,
-                            fontWeight: FontWeight.w600,
+  Widget build(BuildContext context) => Scaffold(
+        backgroundColor: Colors.white,
+        appBar: AppBar(
+          backgroundColor: fbPrimary,
+          foregroundColor: Colors.white,
+          title: const Text('Notifications'),
+          elevation: 0,
+        ),
+        body: Column(
+          children: [
+            // Header with Mark All Read
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 16.h),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const SizedBox.shrink(),
+                  TextButton(
+                    key: const Key('mark_all_notifications_read'),
+                    onPressed: _isMarkingAll || !widget.notifications.any((item) => !item.isRead)
+                        ? null
+                        : _markAllAsRead,
+                    child: _isMarkingAll
+                        ? SizedBox.square(
+                            dimension: 18.r,
+                            child: const CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : Text(
+                            'Mark All Read',
+                            style: TextStyle(
+                              color: fbPrimary,
+                              fontSize: 14.sp,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
-                        ),
-                ),
-              ],
-            ),
-          ),
-          // Filter Tabs
-          Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16.w),
-            child: Row(
-              children: [
-                FilterTab(
-                  label: 'All',
-                  isActive: _filterType == 'all',
-                  onTap: () => _setFilter('all'),
-                ),
-                SizedBox(width: 12.w),
-                FilterTab(
-                  label: 'Unread',
-                  isActive: _filterType == 'unread',
-                  onTap: () => _setFilter('unread'),
-                ),
-              ],
-            ),
-          ),
-          SizedBox(height: 16.h),
-          // Notification List — uses the pre-sorted memoized list
-          Expanded(
-            child: _filteredNotifications.isEmpty
-                ? Center(
-                    child: Text(
-                      _filterType == 'unread'
-                          ? 'No unread notifications.'
-                          : 'No notifications yet.',
-                      style:
-                          TextStyle(fontSize: 16.sp, color: Colors.grey[600]),
-                    ),
-                  )
-                : ListView.separated(
-                    cacheExtent: 350,
-                    padding:
-                        EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
-                    itemCount: _filteredNotifications.length,
-                    separatorBuilder: (_, __) => SizedBox(height: 12.h),
-                    itemBuilder: (context, index) {
-                      final item = _filteredNotifications[index];
-                      return RepaintBoundary(
-                        child: NotificationItemCard(
-                          key: Key('notification_${item.id}'),
-                          item: item,
-                          isUpdating: _updatingIds.contains(item.id),
-                          onTap: () => _markAsRead(item),
-                          onDismiss: () => _dismissNotification(item),
-                        ),
-                      );
-                    },
                   ),
-          ),
-        ],
-      ),
-    );
-  }
+                ],
+              ),
+            ),
+            // Filter Tabs
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16.w),
+              child: Row(
+                children: [
+                  FilterTab(
+                    label: 'All',
+                    isActive: _filterType == 'all',
+                    onTap: () => _setFilter('all'),
+                  ),
+                  SizedBox(width: 12.w),
+                  FilterTab(
+                    label: 'Unread',
+                    isActive: _filterType == 'unread',
+                    onTap: () => _setFilter('unread'),
+                  ),
+                ],
+              ),
+            ),
+            SizedBox(height: 16.h),
+            // Notification List — uses the pre-sorted memoized list
+            Expanded(
+              child: _filteredNotifications.isEmpty
+                  ? Center(
+                      child: Text(
+                        _filterType == 'unread'
+                            ? 'No unread notifications.'
+                            : 'No notifications yet.',
+                        style: TextStyle(fontSize: 16.sp, color: Colors.grey[600]),
+                      ),
+                    )
+                  : ListView.separated(
+                      cacheExtent: 350,
+                      padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
+                      itemCount: _filteredNotifications.length,
+                      separatorBuilder: (_, __) => SizedBox(height: 12.h),
+                      itemBuilder: (context, index) {
+                        final item = _filteredNotifications[index];
+                        return RepaintBoundary(
+                          child: NotificationItemCard(
+                            key: Key('notification_${item.id}'),
+                            item: item,
+                            isUpdating: _updatingIds.contains(item.id),
+                            onTap: () => _markAsRead(item),
+                            onDismiss: () => _dismissNotification(item),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      );
 }
 
 class FilterTab extends StatelessWidget {
@@ -278,29 +268,25 @@ class FilterTab extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
-        decoration: BoxDecoration(
-          color: isActive ? fbPrimary : Colors.white,
-          borderRadius: BorderRadius.circular(20.r),
-          border: isActive
-              ? null
-              : Border.all(color: Colors.grey.shade300, width: 1),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: isActive ? Colors.white : Colors.black87,
-            fontSize: 13.sp,
-            fontWeight: FontWeight.w500,
+  Widget build(BuildContext context) => GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
+          decoration: BoxDecoration(
+            color: isActive ? fbPrimary : Colors.white,
+            borderRadius: BorderRadius.circular(20.r),
+            border: isActive ? null : Border.all(color: Colors.grey.shade300, width: 1),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: isActive ? Colors.white : Colors.black87,
+              fontSize: 13.sp,
+              fontWeight: FontWeight.w500,
+            ),
           ),
         ),
-      ),
-    );
-  }
+      );
 }
 
 class NotificationItemCard extends StatelessWidget {
@@ -318,90 +304,88 @@ class NotificationItemCard extends StatelessWidget {
   final VoidCallback onDismiss;
 
   @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: item.isRead ? Colors.white : const Color(0xFFF5F9FC),
-      borderRadius: BorderRadius.circular(12.r),
-      child: InkWell(
+  Widget build(BuildContext context) => Material(
+        color: item.isRead ? Colors.white : const Color(0xFFF5F9FC),
         borderRadius: BorderRadius.circular(12.r),
-        onTap: item.isRead || isUpdating ? null : onTap,
-        child: Container(
-          padding: EdgeInsets.all(16.w),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12.r),
-            border: Border.all(color: Colors.grey.shade200),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Unread indicator
-                  Container(
-                    width: 8.w,
-                    height: 8.h,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: item.isRead ? Colors.transparent : fbPrimary,
-                    ),
-                  ),
-                  SizedBox(width: 12.w),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          item.title,
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14.sp,
-                            color: Colors.black87,
-                          ),
-                        ),
-                        SizedBox(height: 6.h),
-                        Text(
-                          item.message,
-                          style: TextStyle(
-                            fontSize: 13.sp,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                        SizedBox(height: 8.h),
-                        Text(
-                          item.timestamp,
-                          style: TextStyle(
-                            fontSize: 12.sp,
-                            color: Colors.grey[500],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  SizedBox(width: 8.w),
-                  if (isUpdating)
-                    SizedBox.square(
-                      dimension: 18.r,
-                      child: const CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  else
-                    IconButton(
-                      key: Key('dismiss_notification_${item.id}'),
-                      tooltip: 'Dismiss notification',
-                      onPressed: onDismiss,
-                      visualDensity: VisualDensity.compact,
-                      icon: Icon(
-                        Icons.close_rounded,
-                        size: 19.sp,
-                        color: Colors.grey[500],
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12.r),
+          onTap: item.isRead || isUpdating ? null : onTap,
+          child: Container(
+            padding: EdgeInsets.all(16.w),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12.r),
+              border: Border.all(color: Colors.grey.shade200),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Unread indicator
+                    Container(
+                      width: 8.w,
+                      height: 8.h,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: item.isRead ? Colors.transparent : fbPrimary,
                       ),
                     ),
-                ],
-              ),
-            ],
+                    SizedBox(width: 12.w),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            item.title,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14.sp,
+                              color: Colors.black87,
+                            ),
+                          ),
+                          SizedBox(height: 6.h),
+                          Text(
+                            item.message,
+                            style: TextStyle(
+                              fontSize: 13.sp,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                          SizedBox(height: 8.h),
+                          Text(
+                            item.timestamp,
+                            style: TextStyle(
+                              fontSize: 12.sp,
+                              color: Colors.grey[500],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    SizedBox(width: 8.w),
+                    if (isUpdating)
+                      SizedBox.square(
+                        dimension: 18.r,
+                        child: const CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    else
+                      IconButton(
+                        key: Key('dismiss_notification_${item.id}'),
+                        tooltip: 'Dismiss notification',
+                        onPressed: onDismiss,
+                        visualDensity: VisualDensity.compact,
+                        icon: Icon(
+                          Icons.close_rounded,
+                          size: 19.sp,
+                          color: Colors.grey[500],
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
-      ),
-    );
-  }
+      );
 }

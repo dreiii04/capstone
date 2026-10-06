@@ -1,7 +1,11 @@
+import '../widgets/form_ui.dart';
 import '../widgets/request_status_tracker.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../services/mongo_data_api_service.dart';
+import '../widgets/confirmation_dialog.dart';
+import '../widgets/simple_message_dialog.dart';
 import 'history_screen.dart';
 import 'payment_refund_screen.dart';
 
@@ -17,8 +21,37 @@ class HistoryDetailScreen extends StatefulWidget {
 class _HistoryDetailScreenState extends State<HistoryDetailScreen> {
   static const _primaryBlue = Color(0xFF5A819B);
   static const _darkNavy = Color(0xFF233446);
+  bool _isClaiming = false;
 
   HistoryItem get item => widget.item;
+  bool get _isReadyToClaim => item.displayStatus == 'READY TO CLAIM';
+
+  Future<void> _claimDocument() async {
+    if (_isClaiming || !_isReadyToClaim || item.requestId.isEmpty) return;
+    final confirmed = await showConfirmationDialog(
+      context,
+      title: 'Confirm document claim',
+      message: 'Have you received this document? Confirming will mark this request as Claimed.',
+      confirmLabel: 'Mark as claimed',
+    );
+    if (!confirmed || !mounted) return;
+
+    setState(() => _isClaiming = true);
+    try {
+      await MongoDataApiService.instance.claimRequest(requestId: item.requestId);
+      if (mounted) Navigator.pop(context, true);
+    } catch (error) {
+      if (mounted) {
+        await showSimpleMessageDialog(
+          context,
+          error.toString().replaceFirst('Exception: ', ''),
+          title: 'Could not claim document',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isClaiming = false);
+    }
+  }
 
   String _amountLabel(double value) {
     if (value <= 0) return 'N/A';
@@ -52,149 +85,165 @@ class _HistoryDetailScreenState extends State<HistoryDetailScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F7F9),
-      appBar: AppBar(
-        backgroundColor: _primaryBlue,
-        foregroundColor: Colors.white,
-        centerTitle: true,
-        title: const Text(
-          'Request details',
-          style: TextStyle(fontWeight: FontWeight.w700),
-        ),
-      ),
-      body: SafeArea(
-        top: false,
-        child: SingleChildScrollView(
-          padding: EdgeInsets.fromLTRB(
-            MediaQuery.sizeOf(context).shortestSide >= 600 ? 32.0 : 16.0,
-            24,
-            MediaQuery.sizeOf(context).shortestSide >= 600 ? 32.0 : 16.0,
-            32,
+  Widget build(BuildContext context) => Scaffold(
+        backgroundColor: const Color(0xFFF5F7F9),
+        appBar: AppBar(
+          backgroundColor: _primaryBlue,
+          foregroundColor: Colors.white,
+          centerTitle: true,
+          title: const Text(
+            'Request details',
+            style: TextStyle(fontWeight: FontWeight.w700),
           ),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 720),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _buildCard(
-                        title: 'Request information',
-                        icon: Icons.description_outlined,
-                        children: [
-                          if (item.requestId.isNotEmpty)
-                            _row('Request ID', item.requestId),
-                          _row('Document', item.title),
-                          _row('Processing', item.processingOption.toUpperCase()),
-                          _row('Purpose', item.purpose),
+        ),
+        body: SafeArea(
+          top: false,
+          child: SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(
+              MediaQuery.sizeOf(context).shortestSide >= 600 ? 32.0 : 16.0,
+              24,
+              MediaQuery.sizeOf(context).shortestSide >= 600 ? 32.0 : 16.0,
+              32,
+            ),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 720),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _buildCard(
+                      title: 'Request information',
+                      icon: Icons.description_outlined,
+                      children: [
+                        if (item.requestId.isNotEmpty) _row('Request ID', item.requestId),
+                        _row('Document', item.title),
+                        _row('Processing', item.processingOption.toUpperCase()),
+                        _row('Purpose', item.purpose),
+                        _row(
+                          'Date requested',
+                          DateFormat('MMM d, y  h:mm a').format(item.date),
+                        ),
+                        if (item.datePaid != null)
                           _row(
-                            'Date requested',
-                            DateFormat('MMM d, y  h:mm a').format(item.date),
+                            'Date paid',
+                            DateFormat('MMM d, y  h:mm a').format(item.datePaid!),
                           ),
-                          if (item.datePaid != null)
-                            _row(
-                              'Date paid',
-                              DateFormat('MMM d, y  h:mm a').format(item.datePaid!),
-                            ),
-                          if (item.dateProcessed != null)
-                            _row(
-                              'Date processed',
-                              DateFormat('MMM d, y  h:mm a').format(item.dateProcessed!),
-                            ),
-                          if (item.dateClaimed != null)
-                            _row(
-                              'Date claimed',
-                              DateFormat('MMM d, y  h:mm a').format(item.dateClaimed!),
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      _buildStatusCard(),
-                      const SizedBox(height: 16),
-                      RequestStatusTracker(status: item.status, createdAt: item.date, remarks: item.remarks, history: item.statusHistory),
-                      if (item.isRejected) ...[
-                        const SizedBox(height: 16),
-                        _buildRemarksCard(),
+                        if (item.dateProcessed != null)
+                          _row(
+                            'Date processed',
+                            DateFormat('MMM d, y  h:mm a').format(item.dateProcessed!),
+                          ),
+                        if (item.dateClaimed != null)
+                          _row(
+                            'Date claimed',
+                            DateFormat('MMM d, y  h:mm a').format(item.dateClaimed!),
+                          ),
                       ],
+                    ),
+                    const SizedBox(height: 16),
+                    _buildStatusCard(),
+                    if (_isReadyToClaim) ...[
                       const SizedBox(height: 16),
-                      _buildCard(
-                        title: 'Payment information',
-                        icon: Icons.payments_outlined,
-                        children: item.totalAmount > 0 &&
-                                item.paymentType.trim().isNotEmpty
-                            ? [
-                                _row(
-                                  'Amount paid',
-                                  _amountLabel(item.totalAmount),
-                                ),
-                                _row(
-                                  'Payment method',
-                                  _paymentMethodLabel(item.paymentType),
-                                ),
-                              ]
-                            : [
-                                _row('Payment', 'No payment recorded'),
-                              ],
+                      SizedBox(
+                        height: 52,
+                        child: ElevatedButton.icon(
+                          key: const Key('claim_document_button'),
+                          onPressed: _isClaiming || item.requestId.isEmpty ? null : _claimDocument,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _darkNavy,
+                            foregroundColor: Colors.white,
+                          ),
+                          icon: _isClaiming
+                              ? const ButtonProgressIndicator()
+                              : const Icon(Icons.inventory_2_outlined),
+                          label: const Text('Mark as claimed'),
+                        ),
                       ),
-                      if (item.hasRefundRequest) ...[
-                        const SizedBox(height: 16),
-                        _buildRefundStatusCard(),
-                      ] else if (item.canRequestRefund) ...[
-                        const SizedBox(height: 20),
-                        SizedBox(
-                          height: 52,
-                          child: ElevatedButton.icon(
-                            key: const Key('request_refund_button'),
-                            onPressed: _openRefundScreen,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: _darkNavy,
-                              foregroundColor: Colors.white,
-                              elevation: 0,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                            ),
-                            icon: const Icon(Icons.currency_exchange_rounded),
-                            label: const Text(
-                              'Request refund',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        const Text(
-                          'Available because this rejected request has a received payment.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: Color(0xFF687680),
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
                     ],
-                  ),
+                    const SizedBox(height: 16),
+                    RequestStatusTracker(
+                        status: item.status,
+                        createdAt: item.date,
+                        remarks: item.remarks,
+                        history: item.statusHistory),
+                    if (item.isRejected) ...[
+                      const SizedBox(height: 16),
+                      _buildRemarksCard(),
+                    ],
+                    const SizedBox(height: 16),
+                    _buildCard(
+                      title: 'Payment information',
+                      icon: Icons.payments_outlined,
+                      children: item.totalAmount > 0 && item.paymentType.trim().isNotEmpty
+                          ? [
+                              _row(
+                                'Amount paid',
+                                _amountLabel(item.totalAmount),
+                              ),
+                              _row(
+                                'Payment method',
+                                _paymentMethodLabel(item.paymentType),
+                              ),
+                            ]
+                          : [
+                              _row('Payment', 'No payment recorded'),
+                            ],
+                    ),
+                    if (item.hasRefundRequest) ...[
+                      const SizedBox(height: 16),
+                      _buildRefundStatusCard(),
+                    ] else if (item.canRequestRefund) ...[
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        height: 52,
+                        child: ElevatedButton.icon(
+                          key: const Key('request_refund_button'),
+                          onPressed: _openRefundScreen,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _darkNavy,
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                          icon: const Icon(Icons.currency_exchange_rounded),
+                          label: const Text(
+                            'Request refund',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Available because this rejected request has a received payment.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Color(0xFF687680),
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
             ),
           ),
-        );
-  }
+        ),
+      );
 
   Widget _buildStatusCard() {
     final isReadyToClaim = item.displayStatus == 'READY TO CLAIM' ||
         item.status.trim().toLowerCase() == 'ready to claim' ||
         item.status.trim().toLowerCase() == 'released';
-    final isRefundApproved = item.displayStatus == 'REFUND APPROVED' ||
-        item.normalizedRefundStatus.contains('approv');
+    final isRefundApproved =
+        item.displayStatus == 'REFUND APPROVED' || item.normalizedRefundStatus.contains('approv');
     final isClaimed = item.status.trim().toUpperCase() == 'CLAIMED';
-    final isApprovedOrReady =
-        item.isApproved || isReadyToClaim || isRefundApproved;
-    final statusColor =
-        isApprovedOrReady ? const Color(0xFF218739) : const Color(0xFFB42318);
+    final isApprovedOrReady = item.isApproved || isReadyToClaim || isRefundApproved;
+    final statusColor = isApprovedOrReady ? const Color(0xFF218739) : const Color(0xFFB42318);
     final message = isClaimed
         ? 'This document has been successfully claimed.'
         : isReadyToClaim
@@ -211,9 +260,7 @@ class _HistoryDetailScreenState extends State<HistoryDetailScreen> {
 
     return _buildCard(
       title: 'Final status',
-      icon: isApprovedOrReady
-          ? Icons.check_circle_outline_rounded
-          : Icons.cancel_outlined,
+      icon: isApprovedOrReady ? Icons.check_circle_outline_rounded : Icons.cancel_outlined,
       children: [
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -256,40 +303,35 @@ class _HistoryDetailScreenState extends State<HistoryDetailScreen> {
     );
   }
 
-  Widget _buildRemarksCard() {
-    return KeyedSubtree(
-      key: const Key('history_detail_remarks'),
-      child: _buildCard(
-        title: 'Remarks',
-        icon: Icons.chat_bubble_outline_rounded,
-        children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: const Color(0xFFFFF5F3),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFFFD7D1)),
-            ),
-            child: Text(
-              item.displayRemarks,
-              style: const TextStyle(
-                color: Color(0xFF73413C),
-                fontSize: 14,
-                height: 1.45,
+  Widget _buildRemarksCard() => KeyedSubtree(
+        key: const Key('history_detail_remarks'),
+        child: _buildCard(
+          title: 'Remarks',
+          icon: Icons.chat_bubble_outline_rounded,
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF5F3),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFFFD7D1)),
+              ),
+              child: Text(
+                item.displayRemarks,
+                style: const TextStyle(
+                  color: Color(0xFF73413C),
+                  fontSize: 14,
+                  height: 1.45,
+                ),
               ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
+          ],
+        ),
+      );
 
   Widget _buildRefundStatusCard() {
-    final normalized = item.refundStatus
-        .trim()
-        .toLowerCase()
-        .replaceAll(RegExp(r'[\s-]+'), '_');
+    final normalized = item.refundStatus.trim().toLowerCase().replaceAll(RegExp(r'[\s-]+'), '_');
 
     late final String title;
     late final String message;
@@ -306,8 +348,7 @@ class _HistoryDetailScreenState extends State<HistoryDetailScreen> {
       backgroundColor = const Color(0xFFFFF3F1);
       borderColor = const Color(0xFFFFC9C2);
       foregroundColor = const Color(0xFF9A2318);
-    } else if (normalized.contains('pending') ||
-        normalized.contains('review')) {
+    } else if (normalized.contains('pending') || normalized.contains('review')) {
       title = 'Refund under review';
       message =
           'The office is reviewing your refund request. You will be notified when its status changes.';
@@ -326,11 +367,9 @@ class _HistoryDetailScreenState extends State<HistoryDetailScreen> {
       backgroundColor = const Color(0xFFECF8EF);
       borderColor = const Color(0xFFB7E1C0);
       foregroundColor = const Color(0xFF187331);
-    } else if (normalized.contains('approv') ||
-        normalized.contains('process')) {
+    } else if (normalized.contains('approv') || normalized.contains('process')) {
       title = 'Refund approved';
-      message =
-          'Your refund was approved and is being processed for the account you provided.';
+      message = 'Your refund was approved and is being processed for the account you provided.';
       icon = Icons.currency_exchange_rounded;
       backgroundColor = const Color(0xFFEEF6FA);
       borderColor = const Color(0xFFC9E0EB);
@@ -391,79 +430,76 @@ class _HistoryDetailScreenState extends State<HistoryDetailScreen> {
     required String title,
     required IconData icon,
     required List<Widget> children,
-  }) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFE2E8EC)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEAF1F5),
-                  borderRadius: BorderRadius.circular(12),
+  }) =>
+      Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFFE2E8EC)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEAF1F5),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(icon, color: _primaryBlue, size: 22),
                 ),
-                child: Icon(icon, color: _primaryBlue, size: 22),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  title,
-                  style: const TextStyle(
-                    color: _darkNavy,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      color: _darkNavy,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 18),
-          ...children,
-        ],
-      ),
-    );
-  }
+              ],
+            ),
+            const SizedBox(height: 18),
+            ...children,
+          ],
+        ),
+      );
 
-  Widget _row(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 7),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 124,
-            child: Text(
-              label,
-              style: const TextStyle(
-                color: Color(0xFF687680),
-                fontSize: 13,
+  Widget _row(String label, String value) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 7),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 124,
+              child: Text(
+                label,
+                style: const TextStyle(
+                  color: Color(0xFF687680),
+                  fontSize: 13,
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              value.isEmpty ? 'N/A' : value,
-              textAlign: TextAlign.right,
-              style: const TextStyle(
-                color: _darkNavy,
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                value.isEmpty ? 'N/A' : value,
+                textAlign: TextAlign.right,
+                style: const TextStyle(
+                  color: _darkNavy,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
+          ],
+        ),
+      );
 }

@@ -602,8 +602,8 @@ test('IT-003 Mobile Request Document -> API -> Database -> Notifications -> Logs
     method: 'POST', token: alumniToken,
     body: { docName: 'Custom Archive Certification', purpose: 'Personal Use' },
   });
-  assert.equal(customDocument.status, 201);
-  assert.equal(customDocument.data.request.documentPrice, 100);
+  assert.equal(customDocument.status, 403);
+  assert.match(customDocument.data.message, /not eligible/i);
 
   // Student cannot request Diploma
   const studentDiplomaAttempt = await api('/api/requests', {
@@ -613,14 +613,13 @@ test('IT-003 Mobile Request Document -> API -> Database -> Notifications -> Logs
   assert.equal(studentDiplomaAttempt.status, 403);
   assert.match(studentDiplomaAttempt.data.message, /not eligible/i);
 
-  // Student CAN request TOR
+  // Student cannot request TOR
   const studentTorRequest = await api('/api/requests', {
     method: 'POST', token: studentToken,
     body: { docName: 'Transcript of Records (TOR)', purpose: 'Employment' },
   });
-  assert.equal(studentTorRequest.status, 201);
-  assert.equal(studentTorRequest.data.request.docName, 'Transcript of Records (TOR)');
-  assert.equal(studentTorRequest.data.request.documentPrice, 600);
+  assert.equal(studentTorRequest.status, 403);
+  assert.match(studentTorRequest.data.message, /not eligible/i);
 
   // Alumni CAN request Diploma
   const alumniDiplomaRequest = await api('/api/requests', {
@@ -633,13 +632,13 @@ test('IT-003 Mobile Request Document -> API -> Database -> Notifications -> Logs
 
   // --- Role-based document eligibility ---
 
-  // Former student CAN request TOR
+  // Former student cannot request TOR
   const formerTor = await api('/api/requests', {
     method: 'POST', token: formerStudentToken,
     body: { docName: 'Transcript of Records (TOR)', purpose: 'Employment' },
   });
-  assert.equal(formerTor.status, 201);
-  assert.equal(formerTor.data.request.docName, 'Transcript of Records (TOR)');
+  assert.equal(formerTor.status, 403);
+  assert.match(formerTor.data.message, /not eligible/i);
 
   // Former student CAN request CTC
   const formerCtc = await api('/api/requests', {
@@ -853,6 +852,24 @@ test('IT-004 Mobile Request Tracking -> API -> Database -> Request History', asy
     token: alumniToken,
   });
   assert.equal(alreadyClaimed.status, 409);
+
+  const readyRequest = await api('/api/requests', {
+    method: 'POST',
+    token: alumniToken,
+    body: { docName: 'Certified True Copy (CTC)', purpose: 'Employment' },
+  });
+  assert.equal(readyRequest.status, 201);
+  await db.collection('requests').updateOne(
+    { requestId: readyRequest.data.request.requestId, userId: new ObjectId(alumniId) },
+    { $set: { status: 'Ready to Claim', updatedAt: new Date().toISOString() } },
+  );
+  const readyClaim = await api(`/api/requests/${readyRequest.data.request.requestId}/claim`, {
+    method: 'POST',
+    token: alumniToken,
+  });
+  assert.equal(readyClaim.status, 200);
+  assert.equal(readyClaim.data.request.status, 'Claimed');
+  assert.ok(readyClaim.data.request.claimedAt);
 
   const statusNotification = await api('/api/notifications', {
     method: 'POST',

@@ -1,7 +1,28 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import '../constants.dart';
 import '../models/api_date_time.dart';
 import '../models/request_status.dart';
+
+IconData _iconForTrackingStatus(String label) {
+  switch (label) {
+    case 'Request submitted':
+      return Icons.check_rounded;
+    case 'PENDING FOR PAYMENT':
+      return Icons.payments_outlined;
+    case 'PENDING':
+      return Icons.schedule_outlined;
+    case 'PROCESSING':
+      return Icons.settings_outlined;
+    case 'READY TO CLAIM':
+      return Icons.inventory_2_outlined;
+    case 'CLAIMED':
+    case 'COMPLETED':
+      return Icons.check_circle_outline;
+    default:
+      return Icons.check_rounded;
+  }
+}
 
 /// Recorded events are displayed in order. Legacy records show only the
 /// current status; missing stages are never fabricated as completed events.
@@ -34,7 +55,7 @@ class RequestStatusTracker extends StatelessWidget {
       events[events.length - 1] = {...events.last, 'remarks': remarks};
     }
     final currentIndex = events.length - 1;
-    const stages = ['PENDING FOR PAYMENT', 'PENDING', 'PROCESSING', 'READY TO CLAIM', 'CLAIMED'];
+    const stages = ['PENDING FOR PAYMENT', 'PENDING', 'PROCESSING', 'READY TO CLAIM'];
     final stage = stages.indexOf(current);
     if (stage >= 0) {
       for (final upcoming in stages.skip(stage + 1)) {
@@ -54,7 +75,8 @@ class RequestStatusTracker extends StatelessWidget {
           final label = event['status'] == 'Request submitted' ? 'Request submitted'
               : displayRequestStatus(event['status'].toString());
           final exception = const {'NEEDS UPDATE','REJECTED','CANCELLED','REFUNDED','REFUND APPROVED'}.contains(label);
-          final color = upcoming ? Colors.grey.shade400 : exception ? Colors.red.shade700 : const Color(0xFFEF7B20);
+          final color = upcoming ? Colors.grey.shade400 : exception ? Colors.red.shade700 : fbPrimary;
+          final icon = exception ? Icons.info_outline : _iconForTrackingStatus(label);
           final at = DateTime.tryParse(event['at']?.toString() ?? '')?.toLocal();
           final note = event['remarks']?.toString() ?? '';
           final activeProcessing = active && current == 'PROCESSING' &&
@@ -65,7 +87,7 @@ class RequestStatusTracker extends StatelessWidget {
               Column(children: [
                 Container(width: 48, height: 48,
                   decoration: BoxDecoration(color: color.withValues(alpha: .1), borderRadius: BorderRadius.circular(16)),
-                  child: Icon(exception ? Icons.info_outline : upcoming ? Icons.inventory_2_outlined : active ? Icons.location_on_outlined : Icons.check, color: color)),
+                  child: Icon(icon, color: color)),
                 if (entry.key != events.length - 1)
                   Container(width: 2, height: 28, margin: const EdgeInsets.symmetric(vertical: 5), color: color),
               ]),
@@ -83,23 +105,16 @@ class RequestStatusTracker extends StatelessWidget {
                       style: const TextStyle(fontSize: 12, color: Colors.black54))),
                 if (activeProcessing)
                   Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: color.withValues(alpha: .08),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(children: [
-                        const Expanded(child: Text('Est. processing',
-                          style: TextStyle(fontSize: 12, color: Colors.black54))),
-                        const SizedBox(width: 8),
-                        Expanded(child: Text(estimateLabel ?? 'Awaiting estimate',
-                          textAlign: TextAlign.end,
-                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700,
-                            color: color))),
-                      ]),
-                    ),
+                    padding: const EdgeInsets.only(top: 7, bottom: 3),
+                    child: Row(children: [
+                      const Expanded(child: Text('Est. processing',
+                        style: TextStyle(fontSize: 12, color: Colors.black54))),
+                      const SizedBox(width: 8),
+                      Flexible(child: Text(estimateLabel ?? 'Awaiting estimate',
+                        textAlign: TextAlign.end,
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
+                          color: fbPrimary))),
+                    ]),
                   ),
                 if (upcoming) const Text('Upcoming', style: TextStyle(color: Colors.grey, fontSize: 12)),
                 if (active && !exception) Text('Current status', style: TextStyle(color: color, fontSize: 12)),

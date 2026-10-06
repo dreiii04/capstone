@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../services/mongo_data_api_service.dart';
 import '../screens/history_detail_screen.dart';
+import '../widgets/confirmation_dialog.dart';
+import '../widgets/simple_message_dialog.dart';
 
 class HistoryItem {
   final String processingOption;
@@ -42,23 +45,17 @@ class HistoryItem {
 
   bool get isRejected {
     final normalized = status.trim().toLowerCase();
-    return normalized == 'rejected' ||
-        normalized == 'declined' ||
-        normalized == 'denied';
+    return normalized == 'rejected' || normalized == 'declined' || normalized == 'denied';
   }
 
   bool _isPlaceholder(String value) {
-    final normalized =
-        value.trim().toLowerCase().replaceAll(RegExp(r'[\s-]+'), '_');
-    return const {'none', 'null', 'n/a', 'na', '_', 'not_applicable'}
-        .contains(normalized);
+    final normalized = value.trim().toLowerCase().replaceAll(RegExp(r'[\s-]+'), '_');
+    return const {'none', 'null', 'n/a', 'na', '_', 'not_applicable'}.contains(normalized);
   }
 
   String get displayRemarks {
     final value = remarks.trim();
-    return !hasRemarks
-        ? "No remarks were supplied by the Registrar's Office."
-        : value;
+    return !hasRemarks ? "No remarks were supplied by the Registrar's Office." : value;
   }
 
   bool get hasRemarks {
@@ -111,11 +108,7 @@ class HistoryItem {
     }
     if (normalized.contains('approv')) return 'REFUND APPROVED';
     if (normalized.contains('process')) return 'REFUND PROCESSING';
-    final readable = normalized
-        .split('_')
-        .where((part) => part.isNotEmpty)
-        .join(' ')
-        .toUpperCase();
+    final readable = normalized.split('_').where((part) => part.isNotEmpty).join(' ').toUpperCase();
     return readable.isEmpty ? 'REFUND UPDATE' : 'REFUND $readable';
   }
 
@@ -183,6 +176,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   String _selectedFilter = 'All';
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
+  String? _claimingRequestId;
 
   // Memoized lists to eliminate per-build allocations
   late List<String> _filters;
@@ -211,13 +205,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
   void _applyFilter() {
     _filteredList = _selectedFilter == 'All'
         ? widget.historyList
-        : widget.historyList
-            .where((item) => item.title == _selectedFilter)
-            .toList();
+        : widget.historyList.where((item) => item.title == _selectedFilter).toList();
     final query = _searchQuery.trim().toLowerCase();
     _filteredList = widget.historyList.where((item) {
-      final matchesFilter =
-          _selectedFilter == 'All' || item.title == _selectedFilter;
+      final matchesFilter = _selectedFilter == 'All' || item.title == _selectedFilter;
       if (!matchesFilter) return false;
       if (query.isEmpty) return true;
       return item.title.toLowerCase().contains(query) ||
@@ -247,11 +238,42 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   Future<void> _openDetails(HistoryItem item) async {
-    await Navigator.push<void>(
+    await Navigator.push<bool>(
       context,
       MaterialPageRoute(builder: (context) => HistoryDetailScreen(item: item)),
     );
     if (mounted) await _refresh();
+  }
+
+  Future<void> _claimItem(HistoryItem item) async {
+    if (_claimingRequestId != null ||
+        item.displayStatus != 'READY TO CLAIM' ||
+        item.requestId.isEmpty) {
+      return;
+    }
+    final confirmed = await showConfirmationDialog(
+      context,
+      title: 'Confirm document claim',
+      message: 'Have you received this document? Confirming will mark this request as Claimed.',
+      confirmLabel: 'Mark as claimed',
+    );
+    if (!confirmed || !mounted) return;
+
+    setState(() => _claimingRequestId = item.requestId);
+    try {
+      await MongoDataApiService.instance.claimRequest(requestId: item.requestId);
+      if (mounted) await _refresh();
+    } catch (error) {
+      if (mounted) {
+        await showSimpleMessageDialog(
+          context,
+          error.toString().replaceFirst('Exception: ', ''),
+          title: 'Could not claim document',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _claimingRequestId = null);
+    }
   }
 
   @override
@@ -398,8 +420,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                         SizedBox(height: isTablet ? 14 : 10),
                         _buildErrorBanner(isTablet),
                       ],
-                      if (widget.isLoading &&
-                          widget.historyList.isNotEmpty) ...[
+                      if (widget.isLoading && widget.historyList.isNotEmpty) ...[
                         SizedBox(height: isTablet ? 14 : 10),
                         const LinearProgressIndicator(
                           key: Key('history_refresh_progress'),
@@ -427,24 +448,22 @@ class _HistoryScreenState extends State<HistoryScreen> {
     );
   }
 
-  Widget _buildRefreshButton(bool isTablet) {
-    return IconButton(
-      key: const Key('history_refresh_button'),
-      tooltip: 'Refresh request history',
-      onPressed: widget.onRefresh == null || widget.isLoading ? null : _refresh,
-      style: IconButton.styleFrom(
-        minimumSize: Size.square(isTablet ? 50 : 44),
-        backgroundColor: const Color(0xFFE3EDF3),
-        foregroundColor: _primaryBlue,
-      ),
-      icon: widget.isLoading
-          ? SizedBox.square(
-              dimension: isTablet ? 22 : 19,
-              child: const CircularProgressIndicator(strokeWidth: 2.3),
-            )
-          : const Icon(Icons.refresh_rounded),
-    );
-  }
+  Widget _buildRefreshButton(bool isTablet) => IconButton(
+        key: const Key('history_refresh_button'),
+        tooltip: 'Refresh request history',
+        onPressed: widget.onRefresh == null || widget.isLoading ? null : _refresh,
+        style: IconButton.styleFrom(
+          minimumSize: Size.square(isTablet ? 50 : 44),
+          backgroundColor: const Color(0xFFE3EDF3),
+          foregroundColor: _primaryBlue,
+        ),
+        icon: widget.isLoading
+            ? SizedBox.square(
+                dimension: isTablet ? 22 : 19,
+                child: const CircularProgressIndicator(strokeWidth: 2.3),
+              )
+            : const Icon(Icons.refresh_rounded),
+      );
 
   Widget _buildBody(List<HistoryItem> filteredList, bool isTablet) {
     if (widget.isLoading && widget.historyList.isEmpty) {
@@ -484,9 +503,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
           size: isTablet ? 88 : 70,
           color: const Color(0xFFB5C1C8),
         ),
-        title: filtered
-            ? 'No history matches this filter'
-            : 'No request history yet',
+        title: filtered ? 'No history matches this filter' : 'No request history yet',
         message: filtered
             ? 'Choose All or another document type to see your records.'
             : 'Completed requests and finalized outcomes will appear here.',
@@ -531,107 +548,103 @@ class _HistoryScreenState extends State<HistoryScreen> {
     required String message,
     required bool isTablet,
     Widget? action,
-  }) {
-    return CustomScrollView(
-      key: key,
-      physics: const AlwaysScrollableScrollPhysics(),
-      slivers: [
-        SliverFillRemaining(
-          hasScrollBody: false,
-          child: Center(
-            child: Padding(
-              padding: EdgeInsets.all(isTablet ? 36 : 24),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  icon,
-                  SizedBox(height: isTablet ? 20 : 16),
-                  Text(
-                    title,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: const Color(0xFF2A343D),
-                      fontSize: isTablet ? 23 : 19,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  SizedBox(height: isTablet ? 10 : 8),
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 420),
-                    child: Text(
-                      message,
+  }) =>
+      CustomScrollView(
+        key: key,
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: Center(
+              child: Padding(
+                padding: EdgeInsets.all(isTablet ? 36 : 24),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    icon,
+                    SizedBox(height: isTablet ? 20 : 16),
+                    Text(
+                      title,
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                        color: const Color(0xFF677784),
-                        fontSize: isTablet ? 16 : 14,
-                        height: 1.4,
+                        color: const Color(0xFF2A343D),
+                        fontSize: isTablet ? 23 : 19,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
-                  ),
-                  if (action != null) ...[
-                    SizedBox(height: isTablet ? 22 : 18),
-                    action,
+                    SizedBox(height: isTablet ? 10 : 8),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 420),
+                      child: Text(
+                        message,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: const Color(0xFF677784),
+                          fontSize: isTablet ? 16 : 14,
+                          height: 1.4,
+                        ),
+                      ),
+                    ),
+                    if (action != null) ...[
+                      SizedBox(height: isTablet ? 22 : 18),
+                      action,
+                    ],
                   ],
-                ],
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildRetryButton(String label) {
-    return ElevatedButton.icon(
-      key: const Key('history_retry_button'),
-      onPressed: widget.isLoading ? null : _refresh,
-      style: ElevatedButton.styleFrom(
-        backgroundColor: _primaryBlue,
-        foregroundColor: Colors.white,
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-      icon: const Icon(Icons.refresh_rounded, size: 18),
-      label: Text(label),
-    );
-  }
-
-  Widget _buildErrorBanner(bool isTablet) {
-    return Container(
-      key: const Key('history_error_banner'),
-      width: double.infinity,
-      padding: EdgeInsets.symmetric(
-        horizontal: isTablet ? 18 : 14,
-        vertical: isTablet ? 14 : 10,
-      ),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFFF3F1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFFFD5D0)),
-      ),
-      child: Row(
-        children: [
-          const Icon(
-            Icons.info_outline_rounded,
-            color: Color(0xFFC04B3E),
-            size: 20,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              widget.errorMessage!.trim(),
-              style: TextStyle(
-                color: const Color(0xFF7A251B),
-                fontSize: isTablet ? 15 : 13,
+                ),
               ),
             ),
           ),
         ],
-      ),
-    );
-  }
+      );
 
-  Widget _buildHistoryCard(HistoryItem item, {
+  Widget _buildRetryButton(String label) => ElevatedButton.icon(
+        key: const Key('history_retry_button'),
+        onPressed: widget.isLoading ? null : _refresh,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: _primaryBlue,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+        icon: const Icon(Icons.refresh_rounded, size: 18),
+        label: Text(label),
+      );
+
+  Widget _buildErrorBanner(bool isTablet) => Container(
+        key: const Key('history_error_banner'),
+        width: double.infinity,
+        padding: EdgeInsets.symmetric(
+          horizontal: isTablet ? 18 : 14,
+          vertical: isTablet ? 14 : 10,
+        ),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFF3F1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFFFD5D0)),
+        ),
+        child: Row(
+          children: [
+            const Icon(
+              Icons.info_outline_rounded,
+              color: Color(0xFFC04B3E),
+              size: 20,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                widget.errorMessage!.trim(),
+                style: TextStyle(
+                  color: const Color(0xFF7A251B),
+                  fontSize: isTablet ? 15 : 13,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+
+  Widget _buildHistoryCard(
+    HistoryItem item, {
     required bool isTablet,
     required VoidCallback onTap,
   }) {
@@ -749,6 +762,26 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   ),
                 ],
               ),
+              if (item.displayStatus == 'READY TO CLAIM' && item.requestId.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: OutlinedButton.icon(
+                    key: Key('claim_history_${item.requestId}'),
+                    onPressed: _claimingRequestId != null || widget.isLoading
+                        ? null
+                        : () => _claimItem(item),
+                    icon: _claimingRequestId == item.requestId
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.inventory_2_outlined),
+                    label: const Text('Mark as claimed'),
+                  ),
+                ),
+              ],
             ],
           ),
         ),

@@ -96,9 +96,7 @@ class _PendingScreenState extends State<PendingScreen> {
   void _applyFilter() {
     _filteredList = _selectedFilter == 'All'
         ? _trackingEntries
-        : _trackingEntries
-            .where((item) => item.docName == _selectedFilter)
-            .toList();
+        : _trackingEntries.where((item) => item.docName == _selectedFilter).toList();
   }
 
   bool get _hasError => widget.errorMessage?.trim().isNotEmpty == true;
@@ -110,8 +108,7 @@ class _PendingScreenState extends State<PendingScreen> {
         !identical(oldWidget.refundItems, widget.refundItems);
     if (dataChanged) {
       if (_selectedFilter != 'All' &&
-          !widget.requestList
-              .any((request) => request.docName == _selectedFilter) &&
+          !widget.requestList.any((request) => request.docName == _selectedFilter) &&
           !widget.refundItems.any((item) => item.title == _selectedFilter)) {
         _selectedFilter = 'All';
       }
@@ -234,8 +231,7 @@ class _PendingScreenState extends State<PendingScreen> {
                         SizedBox(height: isTablet ? 14 : 10),
                         _buildErrorBanner(isTablet),
                       ],
-                      if (widget.isLoading &&
-                          widget.requestList.isNotEmpty) ...[
+                      if (widget.isLoading && widget.requestList.isNotEmpty) ...[
                         SizedBox(height: isTablet ? 14 : 10),
                         const LinearProgressIndicator(
                           key: Key('pending_refresh_progress'),
@@ -263,28 +259,25 @@ class _PendingScreenState extends State<PendingScreen> {
     );
   }
 
-  Widget _buildRefreshButton(bool isTablet) {
-    return IconButton(
-      key: const Key('pending_refresh_button'),
-      tooltip: 'Refresh tracked requests',
-      onPressed: widget.onRefresh == null || widget.isLoading ? null : _refresh,
-      style: IconButton.styleFrom(
-        minimumSize: Size.square(isTablet ? 50 : 44),
-        backgroundColor: const Color(0xFFE3EDF3),
-        foregroundColor: _primaryBlue,
-      ),
-      icon: widget.isLoading
-          ? SizedBox.square(
-              dimension: isTablet ? 22 : 19,
-              child: const CircularProgressIndicator(strokeWidth: 2.3),
-            )
-          : const Icon(Icons.refresh_rounded),
-    );
-  }
+  Widget _buildRefreshButton(bool isTablet) => IconButton(
+        key: const Key('pending_refresh_button'),
+        tooltip: 'Refresh tracked requests',
+        onPressed: widget.onRefresh == null || widget.isLoading ? null : _refresh,
+        style: IconButton.styleFrom(
+          minimumSize: Size.square(isTablet ? 50 : 44),
+          backgroundColor: const Color(0xFFE3EDF3),
+          foregroundColor: _primaryBlue,
+        ),
+        icon: widget.isLoading
+            ? SizedBox.square(
+                dimension: isTablet ? 22 : 19,
+                child: const CircularProgressIndicator(strokeWidth: 2.3),
+              )
+            : const Icon(Icons.refresh_rounded),
+      );
 
   Widget _buildBody(List<_TrackingEntry> filteredList, bool isTablet) {
-    final trackingIsEmpty =
-        widget.requestList.isEmpty && widget.refundItems.isEmpty;
+    final trackingIsEmpty = widget.requestList.isEmpty && widget.refundItems.isEmpty;
     if (widget.isLoading && trackingIsEmpty) {
       return _buildScrollableState(
         key: const Key('pending_loading_state'),
@@ -322,8 +315,7 @@ class _PendingScreenState extends State<PendingScreen> {
           size: isTablet ? 88 : 70,
           color: const Color(0xFFB5C1C8),
         ),
-        title:
-            filtered ? 'No requests match this filter' : 'No tracked requests',
+        title: filtered ? 'No requests match this filter' : 'No tracked requests',
         message: filtered
             ? 'Choose All or another document type to see your requests.'
             : 'Active requests and refund updates will appear here.',
@@ -368,52 +360,51 @@ class _PendingScreenState extends State<PendingScreen> {
     required String message,
     required bool isTablet,
     Widget? action,
-  }) {
-    return CustomScrollView(
-      key: key,
-      physics: const AlwaysScrollableScrollPhysics(),
-      slivers: [
-        SliverFillRemaining(
-          hasScrollBody: false,
-          child: Center(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(22, 20, 22, 48),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  icon,
-                  SizedBox(height: isTablet ? 20 : 15),
-                  Text(
-                    title,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: const Color(0xFF33434E),
-                      fontSize: isTablet ? 20 : 17,
-                      fontWeight: FontWeight.w700,
+  }) =>
+      CustomScrollView(
+        key: key,
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(22, 20, 22, 48),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    icon,
+                    SizedBox(height: isTablet ? 20 : 15),
+                    Text(
+                      title,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: const Color(0xFF33434E),
+                        fontSize: isTablet ? 20 : 17,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 7),
-                  Text(
-                    message,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: const Color(0xFF788791),
-                      fontSize: isTablet ? 15 : 13,
-                      height: 1.4,
+                    const SizedBox(height: 7),
+                    Text(
+                      message,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: const Color(0xFF788791),
+                        fontSize: isTablet ? 15 : 13,
+                        height: 1.4,
+                      ),
                     ),
-                  ),
-                  if (action != null) ...[
-                    const SizedBox(height: 18),
-                    action,
+                    if (action != null) ...[
+                      const SizedBox(height: 18),
+                      action,
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
           ),
-        ),
-      ],
-    );
-  }
+        ],
+      );
 
   Widget? _buildRetryButton(String label) {
     if (widget.onRefresh == null) return null;
@@ -428,41 +419,39 @@ class _PendingScreenState extends State<PendingScreen> {
     );
   }
 
-  Widget _buildErrorBanner(bool isTablet) {
-    return Container(
-      key: const Key('pending_error_banner'),
-      width: double.infinity,
-      padding: EdgeInsets.all(isTablet ? 14 : 11),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFFF3F1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFFFD2CC)),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.error_outline_rounded, color: Color(0xFFB42318)),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              widget.errorMessage!.trim(),
-              style: TextStyle(
-                color: const Color(0xFF7A271A),
-                fontSize: isTablet ? 14 : 12,
-                height: 1.35,
+  Widget _buildErrorBanner(bool isTablet) => Container(
+        key: const Key('pending_error_banner'),
+        width: double.infinity,
+        padding: EdgeInsets.all(isTablet ? 14 : 11),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFF3F1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFFFD2CC)),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.error_outline_rounded, color: Color(0xFFB42318)),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                widget.errorMessage!.trim(),
+                style: TextStyle(
+                  color: const Color(0xFF7A271A),
+                  fontSize: isTablet ? 14 : 12,
+                  height: 1.35,
+                ),
               ),
             ),
-          ),
-          if (widget.onRefresh != null)
-            IconButton(
-              tooltip: 'Try again',
-              onPressed: widget.isLoading ? null : _refresh,
-              icon: const Icon(Icons.refresh_rounded),
-              color: const Color(0xFFB42318),
-            ),
-        ],
-      ),
-    );
-  }
+            if (widget.onRefresh != null)
+              IconButton(
+                tooltip: 'Try again',
+                onPressed: widget.isLoading ? null : _refresh,
+                icon: const Icon(Icons.refresh_rounded),
+                color: const Color(0xFFB42318),
+              ),
+          ],
+        ),
+      );
 
   Widget _buildCard(
     _TrackingEntry item, {

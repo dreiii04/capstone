@@ -2879,15 +2879,15 @@ app.post('/requests/:requestId/claim', requireAuth, writeLimiter, async (req, re
       const currentStatus = normalizeWorkflowStatus(
         firstNonEmptyString(record.status, record.state, record.requestStatus),
       );
-      if (currentStatus !== 'released') {
+      if (!['released', 'ready_to_claim'].includes(currentStatus)) {
         return res.status(409).json({
           success: false,
-          message: 'Only released requests can be claimed.',
+          message: 'Only requests ready to claim can be claimed.',
         });
       }
 
       const updateResult = await requests.updateOne(
-        { _id: record._id },
+        { _id: record._id, status: record.status },
         {
           $set: {
             status: 'Claimed',
@@ -2943,10 +2943,10 @@ app.post('/requests/:requestId/claim', requireAuth, writeLimiter, async (req, re
     const currentStatus = normalizeWorkflowStatus(
       firstNonEmptyString(record.status, record.state, record.requestStatus),
     );
-    if (currentStatus !== 'released') {
+    if (!['released', 'ready_to_claim'].includes(currentStatus)) {
       return res.status(409).json({
         success: false,
-        message: 'Only released requests can be claimed.',
+        message: 'Only requests ready to claim can be claimed.',
       });
     }
 

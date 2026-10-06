@@ -1,6 +1,8 @@
+import '../widgets/form_ui.dart';
 import 'dart:io';
 
 import 'package:capstone_project/models/profile_data.dart';
+import 'package:capstone_project/models/student_academic_options.dart';
 import 'package:capstone_project/services/mongo_data_api_service.dart';
 import 'package:capstone_project/widgets/confirmation_dialog.dart';
 import 'package:capstone_project/widgets/profile_avatar.dart';
@@ -68,8 +70,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _yearLevelController = TextEditingController(text: profile.yearLevel);
     _programController = TextEditingController(text: profile.program);
     _schoolEmailController = TextEditingController(text: profile.schoolEmail);
-    _personalEmailController =
-        TextEditingController(text: profile.personalEmail);
+    _personalEmailController = TextEditingController(text: profile.personalEmail);
 
     for (final controller in _controllers) {
       controller.addListener(_refreshSaveState);
@@ -88,6 +89,93 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   void _refreshSaveState() {
     if (mounted) setState(() {});
+  }
+
+  Widget _buildAcademicFields(ProfileData profile) {
+    if (!profile.isCurrentStudent) {
+      return _buildResponsivePair(
+        _buildTextField(
+          fieldKey: const Key('edit_academic_year_field'),
+          controller: _yearLevelController,
+          label: profile.academicYearLabel,
+          icon: Icons.calendar_today_outlined,
+          hint: profile.academicYearHint,
+        ),
+        _buildTextField(
+          fieldKey: const Key('edit_program_field'),
+          controller: _programController,
+          label: profile.programLabel,
+          icon: Icons.school_outlined,
+          hint: profile.programHint,
+          textCapitalization: TextCapitalization.words,
+        ),
+      );
+    }
+
+    final grade = _yearLevelController.text.trim();
+    final programOptions = programOptionsForGrade(grade);
+    final gradeField = _buildAcademicDropdown(
+      fieldKey: const Key('edit_academic_year_field'),
+      controller: _yearLevelController,
+      label: 'Year level',
+      icon: Icons.calendar_today_outlined,
+      options: gradeOptionsFor(profile.yearLevel),
+      onChanged: (value) {
+        _yearLevelController.text = value;
+        if (!programOptionsForGrade(value).contains(_programController.text)) {
+          _programController.clear();
+        }
+      },
+    );
+    if (programOptions.isEmpty) return gradeField;
+
+    return _buildResponsivePair(
+      gradeField,
+      _buildAcademicDropdown(
+        fieldKey: ValueKey('edit_program_field_$grade'),
+        controller: _programController,
+        label: 'Program',
+        icon: Icons.school_outlined,
+        options: programOptions,
+        onChanged: (value) => _programController.text = value,
+      ),
+    );
+  }
+
+  Widget _buildAcademicDropdown({
+    required Key fieldKey,
+    required TextEditingController controller,
+    required String label,
+    required IconData icon,
+    required List<String> options,
+    required ValueChanged<String> onChanged,
+  }) {
+    final selected = controller.text.trim();
+    return DropdownButtonFormField<String>(
+      key: fieldKey,
+      initialValue: options.contains(selected) ? selected : null,
+      isExpanded: true,
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon, size: 21),
+        filled: true,
+        fillColor: const Color(0xFFF8FAFB),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+      items: options
+          .map((option) => DropdownMenuItem(
+                value: option,
+                child: Text(option, overflow: TextOverflow.ellipsis),
+              ))
+          .toList(),
+      onChanged: _isSaving
+          ? null
+          : (value) {
+              if (value != null) onChanged(value);
+            },
+      validator: (value) => value == null ? 'Select $label' : null,
+    );
   }
 
   Future<void> _pickImage() async {
@@ -137,24 +225,23 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
     setState(() => _isSaving = true);
-    final confirmed = await showConfirmationDialog(context, title: 'Save Account Changes',
-      message: 'Save these changes to your account profile?');
+    final confirmed = await showConfirmationDialog(context,
+        title: 'Save Account Changes', message: 'Save these changes to your account profile?');
     if (!mounted) return;
-    if (!confirmed) { setState(() => _isSaving = false); return; }
+    if (!confirmed) {
+      setState(() => _isSaving = false);
+      return;
+    }
 
     final updated = ProfileData(
       id: widget.profile.id,
       firstName: _firstNameController.text.trim(),
       lastName: _lastNameController.text.trim(),
-      studentId: widget.profile.isCurrentStudent
-          ? widget.profile.studentId
-          : '',
+      studentId: widget.profile.isCurrentStudent ? widget.profile.studentId : '',
       yearLevel: _yearLevelController.text.trim(),
       program: _programController.text.trim(),
-      schoolEmail:
-          widget.profile.usesSchoolLogin ? widget.profile.schoolEmail : '',
-      personalEmail:
-          widget.profile.usesSchoolLogin ? '' : widget.profile.personalEmail,
+      schoolEmail: widget.profile.usesSchoolLogin ? widget.profile.schoolEmail : '',
+      personalEmail: widget.profile.usesSchoolLogin ? '' : widget.profile.personalEmail,
       role: widget.profile.role,
       profileImageUrl: widget.profile.profileImageUrl,
     );
@@ -201,8 +288,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     return await showConfirmationDialog(
       context,
       title: 'Discard changes?',
-      message:
-          'You have unsaved changes. Are you sure you want to discard them and exit?',
+      message: 'You have unsaved changes. Are you sure you want to discard them and exit?',
       confirmLabel: 'Discard',
       cancelLabel: 'Keep editing',
       isDestructive: true,
@@ -247,43 +333,42 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             style: TextStyle(fontWeight: FontWeight.w700),
           ),
         ),
-      body: GestureDetector(
-        onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
-        child: SafeArea(
-          top: false,
-          child: Form(
-            key: _formKey,
-            autovalidateMode: AutovalidateMode.onUserInteraction,
-            child: SingleChildScrollView(
-              keyboardDismissBehavior:
-                  ScrollViewKeyboardDismissBehavior.onDrag,
-              padding: EdgeInsets.fromLTRB(
-                MediaQuery.sizeOf(context).shortestSide >= 600 ? 32.0 : 16.0,
-                24,
-                MediaQuery.sizeOf(context).shortestSide >= 600 ? 32.0 : 16.0,
-                bottomInset > 0 ? 24 : 112,
-              ),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 720),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _buildProfilePhotoCard(),
-                  const SizedBox(height: 20),
-                  _buildPersonalInformationCard(),
-                ],
+        body: GestureDetector(
+          onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
+          child: SafeArea(
+            top: false,
+            child: Form(
+              key: _formKey,
+              autovalidateMode: AutovalidateMode.onUserInteraction,
+              child: SingleChildScrollView(
+                keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                padding: EdgeInsets.fromLTRB(
+                  MediaQuery.sizeOf(context).shortestSide >= 600 ? 32.0 : 16.0,
+                  24,
+                  MediaQuery.sizeOf(context).shortestSide >= 600 ? 32.0 : 16.0,
+                  bottomInset > 0 ? 24 : 112,
+                ),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 720),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _buildProfilePhotoCard(),
+                        const SizedBox(height: 20),
+                        _buildPersonalInformationCard(),
+                      ],
+                    ),
+                  ),
+                ),
               ),
             ),
           ),
         ),
+        bottomNavigationBar: bottomInset > 0 ? null : _buildSaveBar(),
       ),
-    ),
-  ),
-  bottomNavigationBar: bottomInset > 0 ? null : _buildSaveBar(),
-),
-);
-}
+    );
+  }
 
   Widget _buildProfilePhotoCard() {
     final role = widget.profile.roleLabel;
@@ -477,23 +562,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             ),
           ],
           const SizedBox(height: 14),
-          _buildResponsivePair(
-            _buildTextField(
-              fieldKey: const Key('edit_academic_year_field'),
-              controller: _yearLevelController,
-              label: profile.academicYearLabel,
-              icon: Icons.calendar_today_outlined,
-              hint: profile.academicYearHint,
-            ),
-            _buildTextField(
-              fieldKey: const Key('edit_program_field'),
-              controller: _programController,
-              label: profile.programLabel,
-              icon: Icons.school_outlined,
-              hint: profile.programHint,
-              textCapitalization: TextCapitalization.words,
-            ),
-          ),
+          _buildAcademicFields(profile),
           if (profile.usesSchoolLogin) ...[
             const SizedBox(height: 14),
             _buildTextField(
@@ -531,62 +600,61 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     required String title,
     required String subtitle,
     required Widget child,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFE2E8EC)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEAF1F5),
-                  borderRadius: BorderRadius.circular(12),
+  }) =>
+      Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFFE2E8EC)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEAF1F5),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(icon, color: _primaryBlue, size: 22),
                 ),
-                child: Icon(icon, color: _primaryBlue, size: 22),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        color: _darkNavy,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          color: _darkNavy,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      subtitle,
-                      style: const TextStyle(
-                        color: Color(0xFF687680),
-                        fontSize: 13,
-                        height: 1.35,
+                      const SizedBox(height: 3),
+                      Text(
+                        subtitle,
+                        style: const TextStyle(
+                          color: Color(0xFF687680),
+                          fontSize: 13,
+                          height: 1.35,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          child,
-        ],
-      ),
-    );
-  }
+              ],
+            ),
+            const SizedBox(height: 20),
+            child,
+          ],
+        ),
+      );
 
   Widget _buildResponsivePair(Widget first, Widget second) {
     if (MediaQuery.sizeOf(context).shortestSide < 600) {
@@ -619,48 +687,35 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     bool enabled = true,
     bool obscureText = false,
     ValueChanged<String>? onFieldSubmitted,
-  }) {
-    return TextFormField(
-      key: fieldKey,
-      controller: controller,
-      validator: validator,
-      keyboardType: keyboardType,
-      textCapitalization: textCapitalization,
-      textInputAction: textInputAction,
-      autofillHints: autofillHints,
-      enabled: enabled,
-      obscureText: obscureText,
-      onFieldSubmitted: onFieldSubmitted,
-      style: const TextStyle(color: _darkNavy, fontSize: 15),
-      decoration: InputDecoration(
-        labelText: label,
-        hintText: hint,
-        helperText: helper,
-        helperMaxLines: 2,
-        prefixIcon: Icon(icon, size: 21),
-        filled: true,
-        fillColor: const Color(0xFFF8FAFB),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFFD8E0E5)),
+  }) =>
+      TextFormField(
+        key: fieldKey,
+        controller: controller,
+        validator: validator,
+        keyboardType: keyboardType,
+        textCapitalization: textCapitalization,
+        textInputAction: textInputAction,
+        autofillHints: autofillHints,
+        enabled: enabled,
+        obscureText: obscureText,
+        onFieldSubmitted: onFieldSubmitted,
+        style: const TextStyle(color: _darkNavy, fontSize: 15),
+        decoration: InputDecoration(
+          labelText: label,
+          hintText: hint,
+          helperText: helper,
+          helperMaxLines: 2,
+          prefixIcon: Icon(icon, size: 21),
+          filled: true,
+          fillColor: const Color(0xFFF8FAFB),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+          border: roundedInputBorder(12, side: const BorderSide(color: Color(0xFFD8E0E5))),
+          enabledBorder: roundedInputBorder(12, side: const BorderSide(color: Color(0xFFD8E0E5))),
+          focusedBorder:
+              roundedInputBorder(12, side: const BorderSide(color: _primaryBlue, width: 2)),
+          errorBorder: roundedInputBorder(12, side: const BorderSide(color: Color(0xFFB3261E))),
         ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFFD8E0E5)),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: _primaryBlue, width: 2),
-        ),
-        errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFFB3261E)),
-        ),
-      ),
-    );
-  }
+      );
 
   Widget _buildSaveBar() {
     final canSave = _hasChanges && !_isSaving;
@@ -694,16 +749,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   ),
                   elevation: 0,
                 ),
-                icon: _isSaving
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Icon(Icons.save_outlined),
+                icon: _isSaving ? const ButtonProgressIndicator() : const Icon(Icons.save_outlined),
                 label: Text(
                   _isSaving ? 'Saving changes...' : 'Save changes',
                   style: const TextStyle(
